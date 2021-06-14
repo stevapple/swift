@@ -632,6 +632,8 @@ const char *ToolChain::JobContext::computeFrontendModeForCompile() const {
     return "-typecheck";
   case file_types::TY_Remapping:
     return "-update-code";
+  case file_types::TY_PackageDeclarations:
+    return "-print-package-declarations";
   case file_types::TY_Nothing:
     // We were told to output nothing, so get the last mode option and use that.
     if (const Arg *A = Args.getLastArg(options::OPT_modes_Group))
@@ -896,6 +898,7 @@ ToolChain::constructInvocation(const BackendJobAction &job,
     case file_types::TY_IndexData:
     case file_types::TY_JSONDependencies:
     case file_types::TY_JSONFeatures:
+    case file_types::TY_PackageDeclarations:
       llvm_unreachable("Cannot be output from backend job");
     case file_types::TY_Swift:
     case file_types::TY_dSYM:

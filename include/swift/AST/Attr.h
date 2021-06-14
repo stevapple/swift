@@ -1677,6 +1677,31 @@ public:
   }
 };
 
+/// The `@package` attribute implies its following imports has
+/// external package dependencies.
+/// 
+/// Syntax definition is passed in on frontend calls.
+class PackageAttr: public DeclAttribute {
+public:
+  PackageAttr(SourceLoc AtLoc, SourceRange Range,
+              StringRef PackageDeclaration,
+              bool Implicit)
+    : DeclAttribute(DAK_Package, AtLoc, Range, Implicit),
+      PackageDeclaration(PackageDeclaration) {}
+
+  /// The package declaration string.
+  const StringRef PackageDeclaration;
+
+  /// The getter of `PackageDeclaration`.
+  const StringRef getPackageDeclaration() {
+    return PackageDeclaration;
+  }
+
+  static bool classof(const DeclAttribute *DA) {
+    return DA->getKind() == DAK_Package;
+  }
+};
+
 /// Attribute that marks a function as differentiable.
 ///
 /// Examples:

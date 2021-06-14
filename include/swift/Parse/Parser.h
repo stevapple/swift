@@ -189,6 +189,16 @@ public:
 
   bool allowTopLevelCode() const;
 
+  bool ignorePackageDeclarations() const {
+    return Context.LangOpts.IgnorePackageDeclarations;
+  }
+  bool allowPackageDeclaration() const {
+    return Context.LangOpts.AllowPackageDeclaration ||
+      Context.LangOpts.IgnorePackageDeclarations;
+  }
+
+  void registerPackageDeclaration(PackageAttr *Package);
+
   const std::vector<Token> &getSplitTokens() const { return SplitTokens; }
 
   void markSplitToken(tok Kind, StringRef Txt);
@@ -1034,6 +1044,10 @@ public:
   /// \p Attr is where to store the parsed attribute
   ParserResult<ImplementsAttr> parseImplementsAttribute(SourceLoc AtLoc,
                                                         SourceLoc Loc);
+
+  /// Parse the @package attribute.
+  ParserResult<PackageAttr> parsePackageAttribute(SourceLoc AtLoc,
+                                                  SourceLoc Loc);
 
   /// Parse the @differentiable attribute.
   ParserResult<DifferentiableAttr> parseDifferentiableAttribute(SourceLoc AtLoc,

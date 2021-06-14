@@ -568,6 +568,13 @@ bool Parser::allowTopLevelCode() const {
   return SF.isScriptMode();
 }
 
+void Parser::registerPackageDeclaration(PackageAttr *Package) {
+  unsigned BufferID = SourceMgr.findBufferContainingLoc(Package->AtLoc);
+  StringRef File = SourceMgr.getIdentifierForBuffer(BufferID);
+  unsigned Line = SourceMgr.getPresumedLineAndColumnForLoc(Package->AtLoc, BufferID).first;
+  Context.PackageAttrs.insert(std::make_tuple(File, Line, Package));
+}
+
 const Token &Parser::peekToken() {
   return L->peekNextToken();
 }

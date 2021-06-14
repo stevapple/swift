@@ -154,6 +154,8 @@ public:
     ScanDependencies,        ///< Scan dependencies of Swift source files
     PrintVersion,       ///< Print version information.
     PrintFeature,       ///< Print supported feature of this compiler
+  
+    PrintPackageDeclarations ///< Print package declarations from the Swift source file
   };
 
   /// Indicates the action the user requested that the frontend perform.
@@ -408,6 +410,10 @@ public:
   /// Whether to emit doc comment information in symbol graphs for symbols
   /// which are inherited through classes or default implementations.
   bool SkipInheritedDocs = false;
+
+  /// Package declarations.
+  /// TODO: Complete the description.
+  bool IgnorePackageDeclarations = false;
 
 private:
   static bool canActionEmitDependencies(ActionType);

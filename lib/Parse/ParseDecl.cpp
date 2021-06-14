@@ -843,6 +843,44 @@ Parser::parseImplementsAttribute(SourceLoc AtLoc, SourceLoc Loc) {
                            MemberNameLoc));
 }
 
+/// Parse a `@package` attribute.
+ParserResult<PackageAttr>
+Parser::parsePackageAttribute(SourceLoc AtLoc, SourceLoc Loc) {
+  StringRef AttrName = "package";
+  SourceLoc lParenLoc;
+  SourceLoc rParenLoc;
+  SmallVector<Expr *, 3> Args;
+  SmallVector<Identifier, 3> ArgLabels;
+  SmallVector<SourceLoc, 3> ArgLabelLocs;
+  SmallVector<TrailingClosure, 1> TrailingClosures;
+  ParserStatus Status;
+  if (Tok.isNot(tok::l_paren)) {
+    diagnose(Loc, diag::attr_expected_lparen, AttrName,
+             /*DeclModifier=*/false);
+    Status.setIsParseError();
+    return Status;
+  }
+  Status = parseExprList(tok::l_paren, tok::r_paren,
+                          /*isPostfix=*/true, /*isExprBasic*/true,
+                          lParenLoc, Args, ArgLabels,
+                          ArgLabelLocs, rParenLoc, TrailingClosures,
+                          SyntaxKind::TupleExprElementList);
+  assert(TrailingClosures.size() == 0 &&
+    "package attribute parsing shouldn't allow trailing closure");
+
+  // TODO: Examining package declaration syntax
+  if (Status.isError()) {
+    return Status;
+  }
+
+  SourceRange range = SourceRange(lParenLoc, rParenLoc);
+  StringRef declaration = SourceMgr.extractText(
+    Lexer::getCharSourceRangeFromSourceRange(SourceMgr, range));
+
+  return ParserResult<PackageAttr>(
+    new (Context) PackageAttr(AtLoc, range, declaration, /*implicit*/false));
+}
+
 /// Parse a `@differentiable` attribute, returning true on error.
 ///
 /// \verbatim
@@ -2732,6 +2770,23 @@ bool Parser::parseNewDeclAttribute(DeclAttributes &Attributes, SourceLoc AtLoc,
 
     if (!DiscardAttribute)
       Attributes.add(attr);
+    break;
+  }
+
+  case DAK_Package: {
+    if (!allowPackageDeclaration()) {
+      diagnose(Loc, diag::package_declaration_not_allowed);
+      return false;
+    }
+
+    ParserResult<PackageAttr> Package;
+    // Parse package declaration
+    Package = parsePackageAttribute(AtLoc, Loc);
+
+    if (Package.isNonNull() && !ignorePackageDeclarations()) {
+      registerPackageDeclaration(Package.get());
+      Attributes.add(Package.get());
+    }
     break;
   }
   }

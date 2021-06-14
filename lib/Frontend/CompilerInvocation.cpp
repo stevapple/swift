@@ -743,6 +743,13 @@ static bool ParseLangArgs(LangOptions &Opts, ArgList &Args,
     Opts.VerifySyntaxTree = true;
   }
 
+  if (FrontendOpts.RequestedAction == FrontendOptions::ActionType::PrintPackageDeclarations) {
+    Opts.AllowPackageDeclaration = true;
+  }
+  if (FrontendOpts.IgnorePackageDeclarations) {
+    Opts.IgnorePackageDeclarations = true;
+  }
+
   // Configure lexing to parse and remember comments if:
   //   - Emitting a swiftdoc/swiftsourceinfo
   //   - Performing index-while-building

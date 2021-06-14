@@ -1005,6 +1005,10 @@ def dump_pcm : Flag<["-"], "dump-pcm">,
   HelpText<"Dump debugging information about a precompiled Clang module">,
   ModeOpt,
   Flags<[FrontendOption, NoInteractiveOption, DoesNotAffectIncrementalBuild]>;
+def print_package_declarations : Flag<["-"], "print-package-declarations">,
+  HelpText<"Print all package declarations in the file.">,
+  ModeOpt,
+  Flags<[FrontendOption, NoInteractiveOption, DoesNotAffectIncrementalBuild]>;
 
 // Other Modes
 def repl : Flag<["-"], "repl">,

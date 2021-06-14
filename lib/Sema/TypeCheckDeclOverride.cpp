@@ -1476,6 +1476,7 @@ namespace  {
     UNINTERESTING_ATTR(ObjCBridged)
     UNINTERESTING_ATTR(Optional)
     UNINTERESTING_ATTR(Override)
+    UNINTERESTING_ATTR(Package)
     UNINTERESTING_ATTR(RawDocComment)
     UNINTERESTING_ATTR(Required)
     UNINTERESTING_ATTR(Convenience)

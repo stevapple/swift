@@ -410,6 +410,12 @@ namespace swift {
     // FrontendOptions.
     bool AllowModuleWithCompilerErrors = false;
 
+    // Allow @package attribute in the file.
+    bool AllowPackageDeclaration = false;
+
+    // Ingore @package attributes in the file.
+    bool IgnorePackageDeclarations = false;
+
     /// A helper enum to represent whether or not we customized the default
     /// ASTVerifier behavior via a frontend flag. By default, we do not
     /// customize.

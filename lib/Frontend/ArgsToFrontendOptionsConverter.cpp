@@ -267,6 +267,8 @@ bool ArgsToFrontendOptionsConverter::convert(
 
   Opts.Static = Args.hasArg(OPT_static);
 
+  Opts.IgnorePackageDeclarations = Args.hasArg(OPT_ignore_package_declarations);
+
   return false;
 }
 
@@ -463,6 +465,9 @@ ArgsToFrontendOptionsConverter::determineRequestedAction(const ArgList &args) {
     return FrontendOptions::ActionType::TypecheckModuleFromInterface;
   if (Opt.matches(OPT_emit_supported_features))
     return FrontendOptions::ActionType::PrintFeature;
+  
+  if (Opt.matches(OPT_print_package_declarations))
+    return FrontendOptions::ActionType::PrintPackageDeclarations;
   llvm_unreachable("Unhandled mode option");
 }
 

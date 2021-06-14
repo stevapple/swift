@@ -1248,6 +1248,8 @@ StringRef DeclAttribute::getAttrName() const {
     return "transpose";
   case DAK_CompletionHandlerAsync:
     return "completionHandlerAsync";
+  case DAK_Package:
+    return "package";
   }
   llvm_unreachable("bad DeclAttrKind");
 }

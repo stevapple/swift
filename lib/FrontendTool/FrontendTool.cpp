@@ -41,6 +41,7 @@
 #include "swift/Basic/Dwarf.h"
 #include "swift/Basic/Edit.h"
 #include "swift/Basic/FileSystem.h"
+#include "swift/Basic/JSONSerialization.h"
 #include "swift/Basic/LLVMInitialize.h"
 #include "swift/Basic/ParseableOutput.h"
 #include "swift/Basic/Platform.h"
@@ -1139,6 +1140,41 @@ static bool performScanDependencies(CompilerInstance &Instance) {
   }
 }
 
+template <> struct swift::json::ObjectTraits<std::tuple<StringRef, unsigned, PackageAttr *>> {
+  static void mapping(Output &out,
+                      std::tuple<StringRef, unsigned, PackageAttr *> &value) {
+    out.mapRequired("file", std::get<0>(value));
+    out.mapRequired("line", std::get<1>(value));
+    StringRef declaration = std::get<2>(value)->getPackageDeclaration();
+    out.mapRequired("declaration", declaration);
+  }
+};
+
+template <>
+struct swift::json::ArrayTraits<llvm::SetVector<std::tuple<StringRef, unsigned, PackageAttr *>>> {
+  static size_t size(Output &out, llvm::SetVector<std::tuple<StringRef, unsigned, PackageAttr *>> &seq) {
+    return seq.size();
+  }
+  static std::tuple<StringRef, unsigned, PackageAttr *> &
+  element(Output &out, llvm::SetVector<std::tuple<StringRef, unsigned, PackageAttr *>> &seq, size_t index) {
+    return const_cast<std::tuple<StringRef, unsigned, PackageAttr *> &>(seq[index]);
+  }
+};
+
+static bool printPackageDeclarations(CompilerInstance &Instance) {
+  for (auto *file : Instance.getMainModule()->getFiles()) {
+    if (auto *SF = dyn_cast<SourceFile>(file))
+      (void)SF->getTopLevelDecls();
+  }
+  auto &ctx = Instance.getASTContext();
+  if (ctx.hadError())
+    return true;
+
+  json::Output Out(llvm::outs(), /*UserInfo=*/{}, /*PrettyPrint=*/true);
+  Out << ctx.PackageAttrs;
+  return false;
+}
+
 static bool performParseOnly(ModuleDecl &MainModule) {
   // A -parse invocation only cares about the side effects of parsing, so
   // force the parsing of all the source files.
@@ -1222,6 +1258,8 @@ static bool performAction(CompilerInstance &Instance,
   // MARK: Dependency Scanning Actions
   case FrontendOptions::ActionType::ScanDependencies:
     return performScanDependencies(Instance);
+  case FrontendOptions::ActionType::PrintPackageDeclarations:
+    return printPackageDeclarations(Instance);
 
   // MARK: General Compilation Actions
   case FrontendOptions::ActionType::Parse:

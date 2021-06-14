@@ -83,6 +83,7 @@ namespace swift {
   class LazyIterableDeclContextData;
   class LazyMemberLoader;
   class ModuleDependencies;
+  class PackageAttr;
   class PatternBindingDecl;
   class PatternBindingInitializer;
   class SourceFile;
@@ -313,6 +314,9 @@ public:
   /// A cache of derivative function types per configuration.
   llvm::DenseMap<SILAutoDiffDerivativeFunctionKey, CanSILFunctionType>
       SILAutoDiffDerivativeFunctions;
+
+  /// Cache of `@package` attributes.
+  llvm::SetVector<std::tuple<StringRef, unsigned, PackageAttr *>> PackageAttrs;
 
   /// Cache of `@differentiable` attributes keyed by parameter indices. Used to
   /// diagnose duplicate `@differentiable` attributes for the same key.

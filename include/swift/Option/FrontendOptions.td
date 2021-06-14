@@ -825,4 +825,8 @@ def new_driver_path
   : Separate<["-"], "new-driver-path">, MetaVarName<"<path>">,
   HelpText<"Path of the new driver to be used">;
 
+def ignore_package_declarations : Flag<["-"], "ignore-package-declarations">,
+  HelpText<"Ignore all package declarations in the file, assuming all external"
+           "dependencies are provided as modules.">;
+
 } // end let Flags = [FrontendOption, NoDriverOption, HelpHidden]

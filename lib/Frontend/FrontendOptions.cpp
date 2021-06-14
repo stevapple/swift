@@ -43,6 +43,7 @@ bool FrontendOptions::needsProperModuleName(ActionType action) {
   case ActionType::DumpTypeRefinementContexts:
   case ActionType::DumpPCM:
   case ActionType::EmitPCH:
+  case ActionType::PrintPackageDeclarations:
     return false;
   case ActionType::EmitSILGen:
   case ActionType::EmitSIL:
@@ -82,6 +83,7 @@ bool FrontendOptions::shouldActionOnlyParse(ActionType action) {
   case ActionType::ScanDependencies:
   case ActionType::PrintVersion:
   case ActionType::PrintFeature:
+  case ActionType::PrintPackageDeclarations:
     return true;
   default:
     return false;
@@ -104,6 +106,7 @@ bool FrontendOptions::doesActionRequireSwiftStandardLibrary(ActionType action) {
   case ActionType::CompileModuleFromInterface:
   case ActionType::TypecheckModuleFromInterface:
   case ActionType::PrintFeature:
+  case ActionType::PrintPackageDeclarations:
     return false;
   case ActionType::ResolveImports:
   case ActionType::Typecheck:
@@ -169,6 +172,7 @@ bool FrontendOptions::doesActionRequireInputs(ActionType action) {
   case ActionType::EmitBC:
   case ActionType::EmitObject:
   case ActionType::DumpTypeInfo:
+  case ActionType::PrintPackageDeclarations:
     return true;
   }
   llvm_unreachable("Unknown ActionType");
@@ -211,6 +215,7 @@ bool FrontendOptions::doesActionPerformEndOfPipelineActions(ActionType action) {
   case ActionType::EmitBC:
   case ActionType::EmitObject:
   case ActionType::DumpTypeInfo:
+  case ActionType::PrintPackageDeclarations:
     return true;
   }
   llvm_unreachable("Unknown ActionType");
@@ -311,6 +316,9 @@ FrontendOptions::formatForPrincipalOutputFileForAction(ActionType action) {
     return TY_JSONDependencies;
   case ActionType::PrintFeature:
     return TY_JSONFeatures;
+
+  case ActionType::PrintPackageDeclarations:
+    return TY_PackageDeclarations;
   }
   llvm_unreachable("unhandled action");
 }
@@ -352,6 +360,7 @@ bool FrontendOptions::canActionEmitDependencies(ActionType action) {
   case ActionType::EmitImportedModules:
   case ActionType::EmitPCM:
   case ActionType::ScanDependencies:
+  case ActionType::PrintPackageDeclarations:
     return true;
   }
   llvm_unreachable("unhandled action");
@@ -379,6 +388,7 @@ bool FrontendOptions::canActionEmitReferenceDependencies(ActionType action) {
   case ActionType::ScanDependencies:
   case ActionType::PrintVersion:
   case ActionType::PrintFeature:
+  case ActionType::PrintPackageDeclarations:
     return false;
   case ActionType::Typecheck:
   case ActionType::MergeModules:
@@ -428,6 +438,7 @@ bool FrontendOptions::canActionEmitModuleSummary(ActionType action) {
   case ActionType::EmitModuleOnly:
   case ActionType::PrintVersion:
   case ActionType::PrintFeature:
+  case ActionType::PrintPackageDeclarations:
     return false;
   case ActionType::EmitSIL:
   case ActionType::EmitSIB:
@@ -464,6 +475,7 @@ bool FrontendOptions::canActionEmitObjCHeader(ActionType action) {
   case ActionType::ScanDependencies:
   case ActionType::PrintVersion:
   case ActionType::PrintFeature:
+  case ActionType::PrintPackageDeclarations:
     return false;
   case ActionType::Typecheck:
   case ActionType::MergeModules:
@@ -504,6 +516,7 @@ bool FrontendOptions::canActionEmitLoadedModuleTrace(ActionType action) {
   case ActionType::ScanDependencies:
   case ActionType::PrintVersion:
   case ActionType::PrintFeature:
+  case ActionType::PrintPackageDeclarations:
     return false;
   case ActionType::ResolveImports:
   case ActionType::Typecheck:
@@ -550,6 +563,7 @@ bool FrontendOptions::canActionEmitModule(ActionType action) {
   case ActionType::ScanDependencies:
   case ActionType::PrintVersion:
   case ActionType::PrintFeature:
+  case ActionType::PrintPackageDeclarations:
     return false;
   case ActionType::MergeModules:
   case ActionType::EmitModuleOnly:
@@ -596,6 +610,7 @@ bool FrontendOptions::canActionEmitInterface(ActionType action) {
   case ActionType::DumpPCM:
   case ActionType::ScanDependencies:
   case ActionType::PrintFeature:
+  case ActionType::PrintPackageDeclarations:
     return false;
   case ActionType::Typecheck:
   case ActionType::MergeModules:
@@ -645,6 +660,7 @@ bool FrontendOptions::doesActionProduceOutput(ActionType action) {
   case ActionType::DumpPCM:
   case ActionType::ScanDependencies:
   case ActionType::PrintFeature:
+  case ActionType::PrintPackageDeclarations:
     return true;
 
   case ActionType::NoneAction:
@@ -694,6 +710,7 @@ bool FrontendOptions::doesActionProduceTextualOutput(ActionType action) {
   case ActionType::ScanDependencies:
   case ActionType::PrintVersion:
   case ActionType::PrintFeature:
+  case ActionType::PrintPackageDeclarations:
     return true;
   }
   llvm_unreachable("unhandled action");
@@ -721,6 +738,7 @@ bool FrontendOptions::doesActionGenerateSIL(ActionType action) {
   case ActionType::ScanDependencies:
   case ActionType::PrintVersion:
   case ActionType::PrintFeature:
+  case ActionType::PrintPackageDeclarations:
     return false;
   case ActionType::EmitSILGen:
   case ActionType::EmitSIBGen:
@@ -770,6 +788,7 @@ bool FrontendOptions::doesActionGenerateIR(ActionType action) {
   case ActionType::ScanDependencies:
   case ActionType::PrintVersion:
   case ActionType::PrintFeature:
+  case ActionType::PrintPackageDeclarations:
     return false;
   case ActionType::Immediate:
   case ActionType::REPL:
