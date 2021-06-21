@@ -27,6 +27,7 @@
 #include "swift/AST/GenericEnvironment.h"
 #include "swift/AST/GenericSignatureBuilder.h"
 #include "swift/AST/ImportCache.h"
+#include "swift/AST/Module.h"
 #include "swift/AST/ModuleNameLookup.h"
 #include "swift/AST/NameLookup.h"
 #include "swift/AST/NameLookupRequests.h"
@@ -86,7 +87,6 @@ public:
   IGNORED_ATTR(ObjCBridged)
   IGNORED_ATTR(ObjCNonLazyRealization)
   IGNORED_ATTR(ObjCRuntimeName)
-  IGNORED_ATTR(Package)
   IGNORED_ATTR(RawDocComment)
   IGNORED_ATTR(RequiresStoredPropertyInits)
   IGNORED_ATTR(RestatedObjCConformance)
@@ -262,6 +262,8 @@ public:
   void visitReasyncAttr(ReasyncAttr *attr);
   void visitNonisolatedAttr(NonisolatedAttr *attr);
   void visitCompletionHandlerAsyncAttr(CompletionHandlerAsyncAttr *attr);
+
+  void visitPackageAttr(PackageAttr *attr);
 };
 } // end anonymous namespace
 
@@ -5636,6 +5638,29 @@ void AttributeChecker::visitCompletionHandlerAsyncAttr(
     CompletionHandlerAsyncAttr *attr) {
   if (AbstractFunctionDecl *AFD = dyn_cast<AbstractFunctionDecl>(D))
     AFD->getAsyncAlternative();
+}
+
+void AttributeChecker::visitPackageAttr(PackageAttr *attr) {
+  auto import = dyn_cast<ImportDecl>(D);
+  if (!import)
+    return;
+
+  if (attr->getNumArguments() != 2) {
+      diagnose(
+        attr->getLocation(), diag::invalid_package_declaration,
+        attr->getNumArguments() > 2 ? "too many arguments":"too few arguments"
+      );
+  }
+
+  ModuleDecl *moduleDecl = import->getModule()->getTopLevelModule();
+  if (!moduleDecl)
+    return;
+
+  diagnose(
+    attr->getLocation(), diag::package_declaration,
+    moduleDecl->getABIName().str(), attr->getPackageDeclaration()
+  );
+  // TODO
 }
 
 AbstractFunctionDecl *AsyncAlternativeRequest::evaluate(

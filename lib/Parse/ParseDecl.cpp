@@ -849,9 +849,9 @@ Parser::parsePackageAttribute(SourceLoc AtLoc, SourceLoc Loc) {
   StringRef AttrName = "package";
   SourceLoc lParenLoc;
   SourceLoc rParenLoc;
-  SmallVector<Expr *, 3> Args;
-  SmallVector<Identifier, 3> ArgLabels;
-  SmallVector<SourceLoc, 3> ArgLabelLocs;
+  SmallVector<Expr *, 4> Args;
+  SmallVector<Identifier, 4> ArgLabels;
+  SmallVector<SourceLoc, 4> ArgLabelLocs;
   SmallVector<TrailingClosure, 1> TrailingClosures;
   ParserStatus Status;
   if (Tok.isNot(tok::l_paren)) {
@@ -877,8 +877,19 @@ Parser::parsePackageAttribute(SourceLoc AtLoc, SourceLoc Loc) {
   StringRef declaration = SourceMgr.extractText(
     Lexer::getCharSourceRangeFromSourceRange(SourceMgr, range));
 
+  SmallVector<Identifier, 2> argLabelsScratch;
+  SmallVector<SourceLoc, 2> argLabelLocsScratch;
+  ArrayRef<Expr *> args = Args;
+  ArrayRef<Identifier> argLabels = ArgLabels;
+  ArrayRef<SourceLoc> argLabelLocs = ArgLabelLocs;
+  Expr *arg = packSingleArgument(Context, lParenLoc, 
+    args, argLabels, argLabelLocs,
+    rParenLoc, {}, /*implicit*/false,
+    argLabelsScratch, argLabelLocsScratch);
+
   return ParserResult<PackageAttr>(
-    new (Context) PackageAttr(AtLoc, range, declaration, /*implicit*/false));
+    new (Context) PackageAttr(AtLoc, range, declaration, arg, 
+      ArgLabels, ArgLabelLocs, /*implicit*/false));
 }
 
 /// Parse a `@differentiable` attribute, returning true on error.

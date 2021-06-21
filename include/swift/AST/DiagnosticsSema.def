@@ -5901,6 +5901,14 @@ ERROR(wrap_invalid_attr_added_by_access_note, none,
       "though it was " WHICH_ACCESS_NOTE(1),
       (DiagnosticInfo *, StringRef, StringRef, DescriptiveDeclKind))
 
+// Package diagnostics
+NOTE(package_declaration, none,
+     "import '%0' from '%1'",
+     (StringRef, StringRef))
+
+ERROR(invalid_package_declaration, none,
+     "%0", (StringRef))
+
 #undef WHICH_ACCESS_NOTE
 
 #define UNDEFINE_DIAGNOSTIC_MACROS

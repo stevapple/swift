@@ -80,6 +80,9 @@ enum class ImportFlags {
   /// implementation detail of this file.
   SPIAccessControl = 0x10,
 
+  /// The module is explicitly marked to be imported from SwiftPM.
+  Package = 0x20,
+
   /// Used for DenseMap.
   Reserved = 0x80
 };

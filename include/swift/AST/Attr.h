@@ -1681,21 +1681,35 @@ public:
 /// external package dependencies.
 /// 
 /// Syntax definition is passed in on frontend calls.
-class PackageAttr: public DeclAttribute {
+class PackageAttr final: public DeclAttribute,
+                         public TrailingCallArguments<PackageAttr> {
+  /// The package declaration string.
+  const StringRef PackageDeclaration;
+
+  unsigned NumArgLabels : 16;
+  Expr *Arg;
+
 public:
   PackageAttr(SourceLoc AtLoc, SourceRange Range,
               StringRef PackageDeclaration,
+              Expr * Arg,
+              ArrayRef<Identifier> ArgLabels,
+              ArrayRef<SourceLoc> ArgLabelLocs,
               bool Implicit)
     : DeclAttribute(DAK_Package, AtLoc, Range, Implicit),
-      PackageDeclaration(PackageDeclaration) {}
-
-  /// The package declaration string.
-  const StringRef PackageDeclaration;
+      PackageDeclaration(PackageDeclaration),
+      Arg(Arg) {
+        NumArgLabels = ArgLabels.size();
+        initializeCallArguments(ArgLabels, ArgLabelLocs);
+      }
 
   /// The getter of `PackageDeclaration`.
   const StringRef getPackageDeclaration() {
     return PackageDeclaration;
   }
+
+  Expr *getArg() const { return Arg; }
+  unsigned getNumArguments() const { return NumArgLabels; }
 
   static bool classof(const DeclAttribute *DA) {
     return DA->getKind() == DAK_Package;

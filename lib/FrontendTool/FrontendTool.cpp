@@ -1172,6 +1172,7 @@ static bool printPackageDeclarations(CompilerInstance &Instance) {
 
   json::Output Out(llvm::outs(), /*UserInfo=*/{}, /*PrettyPrint=*/true);
   Out << ctx.PackageAttrs;
+  llvm::outs() << "\n";
   return false;
 }
 
