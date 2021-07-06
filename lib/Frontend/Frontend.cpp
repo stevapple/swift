@@ -156,7 +156,9 @@ SerializationOptions CompilerInvocation::computeSerializationOptions(
   serializationOpts.ModuleLinkName = opts.ModuleLinkName;
   serializationOpts.UserModuleVersion = opts.UserModuleVersion;
   serializationOpts.ExtraClangOptions = getClangImporterOptions().ExtraArgs;
-  
+  serializationOpts.PublicDependentLibraries =
+      getIRGenOptions().PublicLinkLibraries;
+
   if (opts.EmitSymbolGraph) {
     if (!opts.SymbolGraphOutputDir.empty()) {
       serializationOpts.SymbolGraphOutputDir = opts.SymbolGraphOutputDir;
@@ -168,6 +170,7 @@ SerializationOptions CompilerInvocation::computeSerializationOptions(
     serializationOpts.SymbolGraphOutputDir = OutputDir.str().str();
   }
   serializationOpts.SkipSymbolGraphInheritedDocs = opts.SkipInheritedDocs;
+  serializationOpts.IncludeSPISymbolsInSymbolGraph = opts.IncludeSPISymbolsInSymbolGraph;
   
   if (!getIRGenOptions().ForceLoadSymbolName.empty())
     serializationOpts.AutolinkForceLoad = true;
@@ -766,7 +769,7 @@ static bool shouldImportConcurrencyByDefault(const llvm::Triple &target) {
     return true;
   if (target.isOSLinux())
     return true;
-#if SWIFT_ENABLE_EXPERIMENTAL_CONCURRENCY
+#if SWIFT_IMPLICIT_CONCURRENCY_IMPORT
   if (target.isOSOpenBSD())
     return true;
 #endif
@@ -776,6 +779,12 @@ static bool shouldImportConcurrencyByDefault(const llvm::Triple &target) {
 bool CompilerInvocation::shouldImportSwiftConcurrency() const {
   return shouldImportConcurrencyByDefault(getLangOptions().Target) &&
       !getLangOptions().DisableImplicitConcurrencyModuleImport &&
+      getFrontendOptions().InputMode !=
+        FrontendOptions::ParseInputMode::SwiftModuleInterface;
+}
+
+bool CompilerInvocation::shouldImportSwiftDistributed() const {
+  return getLangOptions().EnableExperimentalDistributed &&
       getFrontendOptions().InputMode !=
         FrontendOptions::ParseInputMode::SwiftModuleInterface;
 }

@@ -1086,6 +1086,14 @@ def target_variant : Separate<["-"], "target-variant">,
   HelpText<"Generate 'zippered' code for macCatalyst that can run on the specified"
            " variant target triple in addition to the main -target triple">;
 
+def clang_target : Separate<["-"], "clang-target">,
+  Flags<[FrontendOption, SwiftAPIExtractOption, SwiftSymbolGraphExtractOption, SwiftAPIDigesterOption]>,
+  HelpText<"Separately set the target we should use for internal Clang instance">;
+
+def disable_clang_target : Flag<["-"], "disable-clang-target">,
+  Flags<[NewDriverOnlyOption]>,
+  HelpText<"Disable a separately specified target triple for Clang instance to use">;
+
 def profile_generate : Flag<["-"], "profile-generate">,
   Flags<[FrontendOption, NoInteractiveOption]>,
   HelpText<"Generate instrumented code to collect execution counts">;
@@ -1256,6 +1264,11 @@ def skip_inherited_docs : Flag<["-"], "skip-inherited-docs">,
   HelpText<"Skip emitting doc comments for members inherited through classes or "
            "default implementations">;
 
+def include_spi_symbols : Flag<["-"], "include-spi-symbols">,
+  Flags<[SwiftSymbolGraphExtractOption, FrontendOption,
+         NoInteractiveOption, SupplementaryOutput, HelpHidden]>,
+  HelpText<"Add symbols with SPI information to the symbol graph">;
+
 // swift-api-digester-only options
 def dump_sdk: Flag<["-", "--"], "dump-sdk">,
   Flags<[NoDriverOption, SwiftAPIDigesterOption]>,
@@ -1352,6 +1365,10 @@ def migrator: Flag<["-", "--"], "migrator">,
 def abort_on_module_fail: Flag<["-", "--"], "abort-on-module-fail">,
   Flags<[NoDriverOption, SwiftAPIDigesterOption]>,
   HelpText<"Abort if a module failed to load">;
+
+def disable_fail_on_error: Flag<["-", "--"], "disable-fail-on-error">,
+  Flags<[NoDriverOption, SwiftAPIDigesterOption]>,
+  HelpText<"Don't exit with a nonzero status if errors are emitted">;
 
 def debug_mapping: Flag<["-", "--"], "debug-mapping">,
   Flags<[NoDriverOption, SwiftAPIDigesterOption]>,

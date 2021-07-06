@@ -320,6 +320,7 @@ class SILInstruction : public llvm::ilist_node<SILInstruction> {
   friend llvm::ilist_traits<SILInstruction>;
   friend llvm::ilist_traits<SILBasicBlock>;
   friend SILBasicBlock;
+  friend SILModule;
 
   /// A backreference to the containing basic block.  This is maintained by
   /// ilist_traits<SILInstruction>.
@@ -364,9 +365,14 @@ class SILInstruction : public llvm::ilist_node<SILInstruction> {
   SILInstructionResultArray getResultsImpl() const;
 
 protected:
+  friend class LibswiftPassInvocation;
+
   SILInstruction() {
     NumCreatedInstructions++;
   }
+
+  /// This method unlinks 'self' from the containing basic block.
+  void removeFromParent();
 
   ~SILInstruction() {
     NumDeletedInstructions++;
@@ -380,6 +386,10 @@ public:
                      size_t Alignment = alignof(ValueBase)) {
     return C.allocateInst(Bytes, Alignment);
   }
+
+  /// Returns true if this instruction is removed from its function and
+  /// scheduled to be deleted.
+  bool isDeleted() const { return !ParentBB; }
 
   enum class MemoryBehavior {
     None,
@@ -463,6 +473,9 @@ public:
 
   /// Drops all uses that belong to this instruction.
   void dropAllReferences();
+
+  /// Drops all references that aren't represented by operands.
+  void dropNonOperandReferences();
 
   /// Replace all uses of all results of this instruction with undef.
   void replaceAllUsesOfAllResultsWithUndef();
@@ -3464,11 +3477,15 @@ class HopToExecutorInst
   friend SILBuilder;
 
   HopToExecutorInst(SILDebugLocation debugLoc, SILValue executor,
-                    bool hasOwnership)
-      : UnaryInstructionBase(debugLoc, executor) { }
+                    bool hasOwnership, bool isMandatory)
+      : UnaryInstructionBase(debugLoc, executor) {
+    SILNode::Bits.HopToExecutorInst.mandatory = isMandatory;
+  }
 
 public:
   SILValue getTargetExecutor() const { return getOperand(); }
+
+  bool isMandatory() const { return SILNode::Bits.HopToExecutorInst.mandatory; }
 };
 
 /// Extract the ex that the code is executing on the operand executor already.
@@ -6249,6 +6266,8 @@ public:
 /// Postcondition: The returned index is unique across all properties in the
 ///                object, including properties declared in a superclass.
 unsigned getFieldIndex(NominalTypeDecl *decl, VarDecl *property);
+
+unsigned getCaseIndex(EnumElementDecl *enumElement);
 
 /// Get the property for a struct or class by its unique index, or nullptr if
 /// the index does not match a property declared in this struct or class or

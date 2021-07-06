@@ -420,6 +420,7 @@ void addImplicitDynamicAttribute(Decl *D);
 void checkDeclAttributes(Decl *D);
 void checkClosureAttributes(ClosureExpr *closure);
 void checkParameterList(ParameterList *params, DeclContext *owner);
+void checkResultType(Type resultType, DeclContext *owner);
 
 void diagnoseDuplicateBoundVars(Pattern *pattern);
 
@@ -513,7 +514,7 @@ bool checkContextualRequirements(GenericTypeDecl *decl,
                                  DeclContext *dc);
 
 /// Add any implicitly-defined constructors required for the given
-/// struct or class.
+/// struct, class or actor.
 void addImplicitConstructors(NominalTypeDecl *typeDecl);
 
 /// Fold the given sequence expression into an (unchecked) expression
@@ -845,13 +846,15 @@ enum class UnsupportedMemberTypeAccessKind : uint8_t {
   TypeAliasOfUnboundGeneric,
   TypeAliasOfExistential,
   AssociatedTypeOfUnboundGeneric,
-  AssociatedTypeOfExistential
+  AssociatedTypeOfExistential,
+  NominalTypeOfUnboundGeneric
 };
 
 /// Check whether the given declaration can be written as a
 /// member of the given base type.
 UnsupportedMemberTypeAccessKind
-isUnsupportedMemberTypeAccess(Type type, TypeDecl *typeDecl);
+isUnsupportedMemberTypeAccess(Type type, TypeDecl *typeDecl,
+                              bool hasUnboundOpener);
 
 /// @}
 

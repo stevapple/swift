@@ -49,6 +49,7 @@
 #include "swift/Basic/SourceManager.h"
 #include "swift/Basic/Statistic.h"
 #include "swift/Basic/UUID.h"
+#include "swift/Basic/Version.h"
 #include "swift/Option/Options.h"
 #include "swift/Frontend/Frontend.h"
 #include "swift/Frontend/AccumulatingDiagnosticConsumer.h"
@@ -1048,7 +1049,13 @@ static bool printSwiftVersion(const CompilerInvocation &Invocation) {
 
 static void printSingleFrontendOpt(llvm::opt::OptTable &table, options::ID id,
                                    llvm::raw_ostream &OS) {
-  if (table.getOption(id).hasFlag(options::FrontendOption)) {
+  if (table.getOption(id).hasFlag(options::FrontendOption) ||
+      table.getOption(id).hasFlag(options::AutolinkExtractOption) ||
+      table.getOption(id).hasFlag(options::ModuleWrapOption) ||
+      table.getOption(id).hasFlag(options::SwiftIndentOption) ||
+      table.getOption(id).hasFlag(options::SwiftAPIExtractOption) ||
+      table.getOption(id).hasFlag(options::SwiftSymbolGraphExtractOption) ||
+      table.getOption(id).hasFlag(options::SwiftAPIDigesterOption)) {
     auto name = StringRef(table.getOptionName(id));
     if (!name.empty()) {
       OS << "    \"" << name << "\",\n";
@@ -1992,6 +1999,23 @@ static void printTargetInfo(const CompilerInvocation &invocation,
   out << "}\n";
 }
 
+/// A PrettyStackTraceEntry to print frontend information useful for debugging.
+class PrettyStackTraceFrontend : public llvm::PrettyStackTraceEntry {
+  const LangOptions &LangOpts;
+
+public:
+  PrettyStackTraceFrontend(const LangOptions &langOpts)
+      : LangOpts(langOpts) {}
+
+  void print(llvm::raw_ostream &os) const override {
+    auto effective = LangOpts.EffectiveLanguageVersion;
+    if (effective != version::Version::getCurrentLanguageVersion()) {
+      os << "Compiling with effective version " << effective;
+    }
+    os << "\n";
+  };
+};
+
 int swift::performFrontend(ArrayRef<const char *> Args,
                            const char *Argv0, void *MainAddr,
                            FrontendObserver *observer) {
@@ -2085,10 +2109,7 @@ int swift::performFrontend(ArrayRef<const char *> Args,
     return finishDiagProcessing(1, /*verifierEnabled*/ false);
   }
 
-  Optional<llvm::PrettyStackTraceString> allowErrorsStackTrace;
-  if (Invocation.getFrontendOptions().AllowModuleWithCompilerErrors)
-    allowErrorsStackTrace.emplace("While allowing modules with compiler errors "
-                                  "enabled");
+  PrettyStackTraceFrontend frontendTrace(Invocation.getLangOptions());
 
   // Make an array of PrettyStackTrace objects to dump the configuration files
   // we used to parse the arguments. These are RAII objects, so they and the

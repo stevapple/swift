@@ -614,9 +614,13 @@ public:
   /// Emits code for a ClosureExpr.
   void emitClosure(AbstractClosureExpr *ce);
   /// Generates code for a class destroying destructor. This
-  /// emits the body code from the DestructorDecl, calls the base class 
+  /// emits the body code from the DestructorDecl, calls the base class
   /// destructor, then implicitly releases the elements of the class.
   void emitDestroyingDestructor(DestructorDecl *dd);
+
+  /// Inject distributed actor and transport interaction code into the destructor.
+  void injectDistributedActorDestructorLifecycleCall(
+      DestructorDecl *dd, SILValue selfValue, SILBasicBlock *continueBB);
 
   /// Generates code for an artificial top-level function that starts an
   /// application based on a main type and optionally a main type.
@@ -674,6 +678,9 @@ public:
   /// Returns the SILFunction created for the closure implementation function that is enqueued on the
   /// new task.
   SILFunction *emitNativeAsyncToForeignThunk(SILDeclRef thunk);
+
+  /// Generates a thunk from an actor function
+  void emitDistributedThunk(SILDeclRef thunk);
 
   /// Generate a nullary function that returns the given value.
   /// If \p emitProfilerIncrement is set, emit a profiler increment for
@@ -836,6 +843,10 @@ public:
   ExecutorBreadcrumb emitHopToTargetActor(SILLocation loc,
                             Optional<ActorIsolation> actorIso,
                             Optional<ManagedValue> actorSelf);
+
+  /// Generate a hop directly to a dynamic actor instance. This can only be done
+  /// inside an async actor-independent function. No hop-back is expected.
+  void emitHopToActorValue(SILLocation loc, ManagedValue actor);
 
   /// A version of `emitHopToTargetActor` that is specialized to the needs
   /// of various types of ConstructorDecls, like class or value initializers,
@@ -1367,8 +1378,9 @@ public:
                        ArgumentSource &&value,
                        bool isOnSelfParameter);
 
-  ManagedValue emitAsyncLetStart(
-      SILLocation loc, Type functionType, ManagedValue taskFunction);
+  ManagedValue emitAsyncLetStart(SILLocation loc,
+                                 SILValue taskOptions,
+                                 Type functionType, ManagedValue taskFunction);
 
   ManagedValue emitAsyncLetGet(SILLocation loc, SILValue asyncLet);
 
@@ -2064,9 +2076,6 @@ public:
 
   /// Destroy and deallocate an initialized local variable.
   void destroyLocalVariable(SILLocation L, VarDecl *D);
-  
-  /// Deallocate an uninitialized local variable.
-  void deallocateUninitializedLocalVariable(SILLocation L, VarDecl *D);
 
   /// Enter a cleanup to deallocate a stack variable.
   CleanupHandle enterDeallocStackCleanup(SILValue address);

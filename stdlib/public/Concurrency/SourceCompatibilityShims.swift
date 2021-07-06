@@ -2,7 +2,7 @@
 //
 // This source file is part of the Swift.org open source project
 //
-// Copyright (c) 2020 Apple Inc. and the Swift project authors
+// Copyright (c) 2020 - 2021 Apple Inc. and the Swift project authors
 // Licensed under Apache License v2.0 with Runtime Library Exception
 //
 // See https://swift.org/LICENSE.txt for license information
@@ -49,7 +49,7 @@ extension TaskPriority {
 @available(SwiftStdlib 5.5, *)
 @_alwaysEmitIntoClient
 public func withTaskCancellationHandler<T>(
-  handler: @Sendable () -> (),
+  handler: @Sendable () -> Void,
   operation: () async throws -> T
 ) async rethrows -> T {
   try await withTaskCancellationHandler(operation: operation, onCancel: handler)
@@ -60,7 +60,7 @@ extension Task where Success == Never, Failure == Never {
   @available(*, deprecated, message: "`Task.withCancellationHandler` has been replaced by `withTaskCancellationHandler` and will be removed shortly.")
   @_alwaysEmitIntoClient
   public static func withCancellationHandler<T>(
-    handler: @Sendable () -> (),
+    handler: @Sendable () -> Void,
     operation: () async throws -> T
   ) async rethrows -> T {
     try await withTaskCancellationHandler(handler: handler, operation: operation)
@@ -255,3 +255,7 @@ extension ThrowingTaskGroup {
 @available(SwiftStdlib 5.5, *)
 @available(*, deprecated, message: "please use UnsafeContination<..., Error>")
 public typealias UnsafeThrowingContinuation<T> = UnsafeContinuation<T, Error>
+
+@available(SwiftStdlib 5.5, *)
+@available(*, deprecated, renamed: "UnownedJob")
+public typealias PartialAsyncTask = UnownedJob

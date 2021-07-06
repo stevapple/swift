@@ -1767,7 +1767,9 @@ SILBasicBlock::iterator swift::removeBeginAccess(BeginAccessInst *beginAccess) {
       op->set(beginAccess->getSource());
     }
   }
-  return beginAccess->getParent()->erase(beginAccess);
+  auto nextIter = std::next(beginAccess->getIterator());
+  beginAccess->getParent()->erase(beginAccess);
+  return nextIter;
 }
 
 //===----------------------------------------------------------------------===//
@@ -1852,8 +1854,8 @@ static void visitBuiltinAddress(BuiltinInst *builtin,
     case BuiltinValueKind::IntInstrprofIncrement:
     case BuiltinValueKind::TSanInoutAccess:
     case BuiltinValueKind::CancelAsyncTask:
-    case BuiltinValueKind::CreateAsyncTaskFuture:
-    case BuiltinValueKind::CreateAsyncTaskGroupFuture:
+    case BuiltinValueKind::CreateAsyncTask:
+    case BuiltinValueKind::CreateAsyncTaskInGroup:
     case BuiltinValueKind::AutoDiffCreateLinearMapContext:
     case BuiltinValueKind::AutoDiffAllocateSubcontext:
     case BuiltinValueKind::InitializeDefaultActor:

@@ -154,8 +154,12 @@ static void addMandatoryDiagnosticOptPipeline(SILPassPipelinePlan &P) {
   P.addDiagnoseInfiniteRecursion();
   P.addYieldOnceCheck();
   P.addEmitDFDiagnostics();
-  P.addDiagnoseLifetimeIssues();
 
+  // Only issue weak lifetime warnings for users who select object lifetime
+  // optimization. The risk of spurious warnings outweighs the benefits.
+  if (P.getOptions().EnableCopyPropagation) {
+    P.addDiagnoseLifetimeIssues();
+  }
   // Canonical swift requires all non cond_br critical edges to be split.
   P.addSplitNonCondBrCriticalEdges();
 }
@@ -728,8 +732,8 @@ static void addLastChanceOptPassPipeline(SILPassPipelinePlan &P) {
   // Only has an effect if the -assume-single-thread option is specified.
   P.addAssumeSingleThreaded();
 
-  // Only has an effect if opt-remark is enabled.
-  P.addOptRemarkGenerator();
+  // Emits remarks on all functions with @_assemblyVision attribute.
+  P.addAssemblyVisionRemarkGenerator();
 
   // FIXME: rdar://72935649 (Miscompile on combining PruneVTables with WMO)
   // P.addPruneVTables();
@@ -828,7 +832,7 @@ SILPassPipelinePlan::getPerformancePassPipeline(const SILOptions &Options) {
 
   addLastChanceOptPassPipeline(P);
 
-  // Has only an effect if the -gsil option is specified.
+  // Has only an effect if the -sil-based-debuginfo option is specified.
   addSILDebugInfoGeneratorPipeline(P);
 
   // Call the CFG viewer.
@@ -879,7 +883,7 @@ SILPassPipelinePlan::getOnonePassPipeline(const SILOptions &Options) {
   // Create pre-specializations.
   P.addOnonePrespecializations();
 
-  // Has only an effect if the -gsil option is specified.
+  // Has only an effect if the -sil-based-debuginfo option is specified.
   P.addSILDebugInfoGenerator();
 
   return P;

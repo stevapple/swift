@@ -356,6 +356,10 @@ public:
   /// Determine whether this type variable represents a closure result type.
   bool isClosureResultType() const;
 
+  /// Determine whether this type variable represents
+  /// a type of a key path expression.
+  bool isKeyPathType() const;
+
   /// Retrieve the representative of the equivalence class to which this
   /// type variable belongs.
   ///
@@ -1379,11 +1383,11 @@ enum class ConstraintSystemFlags {
 
   /// If set, verbose output is enabled for this constraint system.
   ///
-  /// Note that this flag is automatically applied to all constraint systems
+  /// Note that this flag is automatically applied to all constraint systems,
   /// when \c DebugConstraintSolver is set in \c TypeCheckerOptions. It can be
   /// automatically enabled for select constraint solving attempts by setting
-  /// \c DebugConstraintSolverAttempt. Finally, it be automatically enabled
-  /// for a pre-configured set of expressions on line numbers by setting
+  /// \c DebugConstraintSolverAttempt. Finally, it can also be automatically 
+  /// enabled for a pre-configured set of expressions on line numbers by setting
   /// \c DebugConstraintSolverOnLines.
   DebugConstraints = 0x10,
 
@@ -2370,7 +2374,7 @@ private:
      /// The best solution computed so far.
     Optional<Score> BestScore;
 
-    /// The number of the solution attempt we're looking at.
+    /// The number of the solution attempts we're looking at.
     unsigned SolutionAttempt;
 
     /// Refers to the innermost partial solution scope.
@@ -2517,8 +2521,8 @@ private:
 
   private:
     /// The list of constraints that have been retired along the
-    /// current path, this list is used in LIFO fashion when constraints
-    /// are added back to the circulation.
+    /// current path, this list is used in LIFO fashion when
+    /// constraints are added back to the circulation.
     ConstraintList retiredConstraints;
 
     /// The set of constraints which were active at the time of this state
@@ -2817,8 +2821,8 @@ private:
   /// able to emit an error message, or false if none of the fixits worked out.
   bool applySolutionFixes(const Solution &solution);
 
-  /// If there is more than one viable solution,
-  /// attempt to pick the best solution and remove all of the rest.
+  /// If there is more than one viable solution, attempt 
+  /// to pick the best solution and remove all of the rest.
   ///
   /// \param solutions The set of solutions to filter.
   ///
@@ -2861,7 +2865,7 @@ private:
   void addKeyPathApplicationRootConstraint(Type root, ConstraintLocatorBuilder locator);
 
 public:
-  /// Lookup for a member with the given name in the given base type.
+  /// Lookup for a member with the given name which is in the given base type.
   ///
   /// This routine caches the results of member lookups in the top constraint
   /// system, to avoid.
@@ -3951,7 +3955,7 @@ public:
   }
 
 private:
-  /// Adjust the constraint system to accomodate the given selected overload, and
+  /// Adjust the constraint system to accommodate the given selected overload, and
   /// recompute the type of the referenced declaration.
   ///
   /// \returns a pair containing the adjusted opened type of a reference to
@@ -5365,6 +5369,9 @@ public:
   TypeVariableBinding(TypeVariableType *typeVar, PotentialBinding &binding)
       : TypeVar(typeVar), Binding(binding) {}
 
+  TypeVariableType *getTypeVariable() const { return TypeVar; }
+  Type getType() const { return Binding.BindingType; }
+
   bool isDefaultable() const { return Binding.isDefaultableBinding(); }
 
   bool hasDefaultedProtocol() const {
@@ -5449,7 +5456,21 @@ public:
     if (needsToComputeNext() && !computeNext())
       return None;
 
-    return TypeVariableBinding(TypeVar, Bindings[Index++]);
+    auto &binding = Bindings[Index++];
+
+    // Record produced type as bound/explored early, otherwise
+    // it could be possible to re-discover it during `computeNext()`,
+    // which leads to duplicate bindings e.g. inferring fallback
+    // `Void` for a closure result type when `Void` was already
+    // inferred as a direct/transitive binding.
+    {
+      auto type = binding.BindingType;
+
+      BoundTypes.insert(type.getPointer());
+      ExploredTypes.insert(type->getCanonicalType());
+    }
+
+    return TypeVariableBinding(TypeVar, binding);
   }
 
   bool needsToComputeNext() const override { return Index >= Bindings.size(); }

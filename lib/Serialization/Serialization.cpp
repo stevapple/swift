@@ -1217,6 +1217,10 @@ void Serializer::writeInputBlock(const SerializationOptions &options) {
     LinkLibrary.emit(ScratchRecord, serialization::LibraryKind::Library,
                      options.AutolinkForceLoad, options.ModuleLinkName);
   }
+  for (auto dependentLib : options.PublicDependentLibraries) {
+    LinkLibrary.emit(ScratchRecord, serialization::LibraryKind::Library,
+                     options.AutolinkForceLoad, dependentLib);
+  }
 }
 
 /// Translate AST default argument kind to the Serialization enum values, which
@@ -1460,7 +1464,8 @@ void Serializer::writeASTBlockEntity(
       data.push_back(addDeclRef(req));
       data.push_back(addDeclRef(witness.getDecl()));
       assert(witness.getDecl() || req->getAttrs().hasAttribute<OptionalAttr>()
-             || req->getAttrs().isUnavailable(req->getASTContext()));
+             || req->getAttrs().isUnavailable(req->getASTContext())
+             || allowCompilerErrors());
 
       // If there is no witness, we're done.
       if (!witness.getDecl()) return;
@@ -2012,6 +2017,8 @@ getStableSelfAccessKind(swift::SelfAccessKind MM) {
 # define DECL(KIND, PARENT)\
 LLVM_ATTRIBUTE_UNUSED \
 static void verifyAttrSerializable(const KIND ## Decl *D) {\
+  if (D->Decl::getASTContext().LangOpts.AllowModuleWithCompilerErrors)\
+    return;\
   for (auto Attr : D->getAttrs()) {\
     assert(Attr->canAppearOnDecl(D) && "attribute cannot appear on a " #KIND);\
   }\
@@ -2401,14 +2408,6 @@ class Serializer::DeclSerializer : public DeclVisitor<DeclSerializer> {
       auto abbrCode = S.DeclTypeAbbrCodes[InlineDeclAttrLayout::Code];
       InlineDeclAttrLayout::emitRecord(S.Out, S.ScratchRecord, abbrCode,
                                        (unsigned)theAttr->getKind());
-      return;
-    }
-
-    case DAK_ActorIndependent: {
-      auto *theAttr = cast<ActorIndependentAttr>(DA);
-      auto abbrCode = S.DeclTypeAbbrCodes[ActorIndependentDeclAttrLayout::Code];
-      ActorIndependentDeclAttrLayout::emitRecord(S.Out, S.ScratchRecord,
-                                        abbrCode, (unsigned)theAttr->getKind());
       return;
     }
 
@@ -3934,6 +3933,9 @@ public:
     using namespace decls_block;
     verifyAttrSerializable(dtor);
 
+    if (S.allowCompilerErrors() && dtor->isInvalid())
+      return;
+
     auto contextID = S.addDeclContextRef(dtor->getDeclContext());
 
     unsigned abbrCode = S.DeclTypeAbbrCodes[DestructorLayout::Code];
@@ -4164,6 +4166,13 @@ public:
   }
 
   void visitUnresolvedType(const UnresolvedType *) {
+    // If for some reason we have an unresolved type while compiling with
+    // errors, just serialize an ErrorType and continue.
+    if (S.getASTContext().LangOpts.AllowModuleWithCompilerErrors) {
+      visitErrorType(
+          cast<ErrorType>(ErrorType::get(S.getASTContext()).getPointer()));
+      return;
+    }
     llvm_unreachable("should not serialize an UnresolvedType");
   }
 
@@ -4370,7 +4379,7 @@ public:
           S.addDeclBaseNameRef(param.getInternalLabel()),
           S.addTypeRef(param.getPlainType()), paramFlags.isVariadic(),
           paramFlags.isAutoClosure(), paramFlags.isNonEphemeral(), rawOwnership,
-          paramFlags.isNoDerivative());
+          paramFlags.isIsolated(), paramFlags.isNoDerivative());
     }
   }
 
@@ -5661,6 +5670,7 @@ void swift::serialize(ModuleOrSourceFile DC,
         /*EmitSynthesizedMembers*/true,
         /*PrintMessages*/false,
         /*EmitInheritedDocs*/options.SkipSymbolGraphInheritedDocs,
+        /*IncludeSPISymbols*/options.IncludeSPISymbolsInSymbolGraph,
       };
       symbolgraphgen::emitSymbolGraphForModule(M, SGOpts);
     }

@@ -27,6 +27,7 @@
 #include "llvm/Support/LineIterator.h"
 #include "llvm/Support/Path.h"
 #include "llvm/Support/Process.h"
+#include "llvm/Support/WithColor.h"
 
 using namespace swift;
 using namespace llvm::opt;
@@ -419,6 +420,13 @@ static bool ParseLangArgs(LangOptions &Opts, ArgList &Args,
 
   Opts.EnableExperimentalConcurrency |=
     Args.hasArg(OPT_enable_experimental_concurrency);
+
+  Opts.EnableExperimentalOpaqueReturnTypes |=
+      Args.hasArg(OPT_enable_experimental_opaque_return_types);
+
+  Opts.EnableExperimentalDistributed |=
+    Args.hasArg(OPT_enable_experimental_distributed);
+
   Opts.EnableInferPublicSendable |=
     Args.hasFlag(OPT_enable_infer_public_concurrent_value,
                  OPT_disable_infer_public_concurrent_value,
@@ -428,6 +436,12 @@ static bool ParseLangArgs(LangOptions &Opts, ArgList &Args,
 
   Opts.DisableImplicitConcurrencyModuleImport |=
     Args.hasArg(OPT_disable_implicit_concurrency_module_import);
+
+  /// experimental distributed also implicitly enables experimental concurrency
+  Opts.EnableExperimentalDistributed |=
+    Args.hasArg(OPT_enable_experimental_distributed);
+  Opts.EnableExperimentalConcurrency |=
+    Args.hasArg(OPT_enable_experimental_distributed);
 
   Opts.DiagnoseInvalidEphemeralnessAsError |=
       Args.hasArg(OPT_enable_invalid_ephemeralness_as_error);
@@ -447,6 +461,8 @@ static bool ParseLangArgs(LangOptions &Opts, ArgList &Args,
       = A->getOption().matches(OPT_enable_conformance_availability_errors);
   }
 
+  Opts.WarnOnPotentiallyUnavailableEnumCase |=
+      Args.hasArg(OPT_warn_on_potentially_unavailable_enum_case);
   if (auto A = Args.getLastArg(OPT_enable_access_control,
                                OPT_disable_access_control)) {
     Opts.EnableAccessControl
@@ -676,6 +692,20 @@ static bool ParseLangArgs(LangOptions &Opts, ArgList &Args,
     Opts.TargetVariant = llvm::Triple(A->getValue());
   }
 
+  // Collect -clang-target value if specified in the front-end invocation.
+  // Usually, the driver will pass down a clang target with the
+  // exactly same value as the main target, so we could dignose the usage of
+  // unavailable APIs.
+  // The reason we cannot infer clang target from -target is that not all
+  // front-end invocation will include a -target to start with. For instance,
+  // when compiling a Swift module from a textual interface, -target isn't
+  // necessary because the textual interface hardcoded the proper target triple
+  // to use. Inferring -clang-target there will always give us the default
+  // target triple.
+  if (const Arg *A = Args.getLastArg(OPT_clang_target)) {
+    Opts.ClangTarget = llvm::Triple(A->getValue());
+  }
+
   Opts.EnableCXXInterop |= Args.hasArg(OPT_enable_cxx_interop);
   Opts.EnableObjCInterop =
       Args.hasFlag(OPT_enable_objc_interop, OPT_disable_objc_interop,
@@ -788,6 +818,35 @@ static bool ParseLangArgs(LangOptions &Opts, ArgList &Args,
     }
   }
 
+  Opts.EnableRequirementMachine = Args.hasFlag(
+      OPT_enable_requirement_machine,
+      OPT_disable_requirement_machine, /*default=*/false);
+
+  Opts.DebugRequirementMachine = Args.hasArg(
+      OPT_debug_requirement_machine);
+
+  if (const Arg *A = Args.getLastArg(OPT_requirement_machine_step_limit)) {
+    unsigned limit;
+    if (StringRef(A->getValue()).getAsInteger(10, limit)) {
+      Diags.diagnose(SourceLoc(), diag::error_invalid_arg_value,
+                     A->getAsString(Args), A->getValue());
+      HadError = true;
+    } else {
+      Opts.RequirementMachineStepLimit = limit;
+    }
+  }
+
+  if (const Arg *A = Args.getLastArg(OPT_requirement_machine_depth_limit)) {
+    unsigned limit;
+    if (StringRef(A->getValue()).getAsInteger(10, limit)) {
+      Diags.diagnose(SourceLoc(), diag::error_invalid_arg_value,
+                     A->getAsString(Args), A->getValue());
+      HadError = true;
+    } else {
+      Opts.RequirementMachineDepthLimit = limit;
+    }
+  }
+
   return HadError || UnsupportedOS || UnsupportedArch;
 }
 
@@ -873,7 +932,6 @@ static bool ParseTypeCheckerArgs(TypeCheckerOptions &Opts, ArgList &Args,
       Args.hasArg(OPT_experimental_print_full_convention);
 
   Opts.DebugConstraintSolver |= Args.hasArg(OPT_debug_constraints);
-  Opts.DebugGenericSignatures |= Args.hasArg(OPT_debug_generic_signatures);
 
   for (const Arg *A : Args.filtered(OPT_debug_constraints_on_line)) {
     unsigned line;
@@ -893,6 +951,8 @@ static bool ParseTypeCheckerArgs(TypeCheckerOptions &Opts, ArgList &Args,
 
   if (Args.getLastArg(OPT_solver_disable_shrink))
     Opts.SolverDisableShrink = true;
+
+  Opts.DebugGenericSignatures |= Args.hasArg(OPT_debug_generic_signatures);
 
   return HadError;
 }
@@ -1308,6 +1368,16 @@ static bool ParseSILArgs(SILOptions &Opts, ArgList &Args,
   if (const Arg *A = Args.getLastArg(OPT_save_optimization_record_path))
     Opts.OptRecordFile = A->getValue();
 
+  // If any of the '-g<kind>', except '-gnone', is given,
+  // tell the SILPrinter to print debug info as well
+  if (const Arg *A = Args.getLastArg(OPT_g_Group)) {
+    if (!A->getOption().matches(options::OPT_gnone))
+      Opts.PrintDebugInfo = true;
+  }
+
+  if (Args.hasArg(OPT_legacy_gsil))
+    llvm::WithColor::warning() << "'-gsil' is deprecated, "
+                               << "use '-sil-based-debuginfo' instead\n";
   if (Args.hasArg(OPT_debug_on_sil)) {
     // Derive the name of the SIL file for debugging from
     // the regular outputfile.
@@ -1533,7 +1603,6 @@ static bool ParseIRGenArgs(IRGenOptions &Opts, ArgList &Args,
   Opts.DisableLLVMOptzns |= Args.hasArg(OPT_disable_llvm_optzns);
   Opts.DisableSwiftSpecificLLVMOptzns |=
       Args.hasArg(OPT_disable_swift_specific_llvm_optzns);
-  Opts.DisableLLVMSLPVectorizer |= Args.hasArg(OPT_disable_llvm_slp_vectorizer);
   if (Args.hasArg(OPT_disable_llvm_verify))
     Opts.Verify = false;
 
@@ -1710,6 +1779,10 @@ static bool ParseIRGenArgs(IRGenOptions &Opts, ArgList &Args,
 
   for (const auto &Lib : Args.getAllArgValues(options::OPT_autolink_library))
     Opts.LinkLibraries.push_back(LinkLibrary(Lib, LibraryKind::Library));
+
+  for (const auto &Lib : Args.getAllArgValues(options::OPT_public_autolink_library)) {
+    Opts.PublicLinkLibraries.push_back(Lib);
+  }
 
   if (const Arg *A = Args.getLastArg(OPT_type_info_dump_filter_EQ)) {
     StringRef mode(A->getValue());

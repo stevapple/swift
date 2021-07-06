@@ -2154,6 +2154,8 @@ public:
   }
 
   void visitHopToExecutorInst(HopToExecutorInst *HTEI) {
+    if (HTEI->isMandatory())
+      *this << "[mandatory] ";
     *this << getIDAndType(HTEI->getTargetExecutor());
   }
 
@@ -3635,7 +3637,8 @@ SILPrintContext::SILPrintContext(llvm::raw_ostream &OS, bool Verbose,
 
 SILPrintContext::SILPrintContext(llvm::raw_ostream &OS, const SILOptions &Opts)
     : OutStream(OS), Verbose(Opts.EmitVerboseSIL),
-      SortedSIL(Opts.EmitSortedSIL), DebugInfo(SILPrintDebugInfo),
+      SortedSIL(Opts.EmitSortedSIL),
+      DebugInfo(Opts.PrintDebugInfo || SILPrintDebugInfo),
       PrintFullConvention(Opts.PrintFullConvention) {}
 
 SILPrintContext::SILPrintContext(llvm::raw_ostream &OS, bool Verbose,

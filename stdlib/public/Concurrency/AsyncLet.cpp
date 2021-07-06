@@ -16,9 +16,10 @@
 
 #include "../CompatibilityOverride/CompatibilityOverride.h"
 #include "swift/Runtime/Concurrency.h"
-#include "swift/ABI/Task.h"
 #include "swift/ABI/AsyncLet.h"
 #include "swift/ABI/Metadata.h"
+#include "swift/ABI/Task.h"
+#include "swift/ABI/TaskOptions.h"
 #include "swift/Runtime/Mutex.h"
 #include "swift/Runtime/HeapObject.h"
 #include "TaskPrivate.h"
@@ -44,7 +45,7 @@ private:
   // TODO: more additional flags here, we can use them for future optimizations.
   //       e.g. "was awaited on" or "needs free"
 
-  friend class AsyncTask;
+  friend class ::swift::AsyncTask;
 
 public:
   explicit AsyncLetImpl(AsyncTask* task)
@@ -86,41 +87,36 @@ static AsyncLetImpl *asImpl(const AsyncLet *alet) {
       const_cast<AsyncLet*>(alet));
 }
 
-// =============================================================================
-// ==== start ------------------------------------------------------------------
-
-SWIFT_CC(swift)
-static void swift_asyncLet_startImpl(AsyncLet *alet,
-                                     const Metadata *futureResultType,
-                                     void *closureEntryPoint,
-                                     void *closureContext) {
-  AsyncTask *parent = swift_task_getCurrent();
-  assert(parent && "async-let cannot be created without parent task");
-
-  auto flags = JobFlags(JobKind::Task, parent->getPriority());
-  flags.task_setIsFuture(true);
-  flags.task_setIsChildTask(true);
-
-  auto childTaskAndContext = swift_task_create_async_let_future(
-      flags.getOpaqueValue(),
-      futureResultType,
-      closureEntryPoint,
-      closureContext);
-
-  AsyncTask *childTask = childTaskAndContext.Task;
-
-  assert(childTask->isFuture());
-  assert(childTask->hasChildFragment());
-  AsyncLetImpl *impl = new (alet) AsyncLetImpl(childTask);
+void swift::asyncLet_addImpl(AsyncTask *task, AsyncLet *asyncLet) {
+  AsyncLetImpl *impl = new (asyncLet) AsyncLetImpl(task);
 
   auto record = impl->getTaskRecord();
   assert(impl == record && "the async-let IS the task record");
 
   // ok, now that the group actually is initialized: attach it to the task
   swift_task_addStatusRecord(record);
+}
 
-  // schedule the task
-  swift_task_enqueueGlobal(childTask);
+// =============================================================================
+// ==== start ------------------------------------------------------------------
+
+SWIFT_CC(swift)
+void swift::swift_asyncLet_start(AsyncLet *alet,
+                                 TaskOptionRecord *options,
+                                 const Metadata *futureResultType,
+                                 void *closureEntryPoint,
+                                 HeapObject *closureContext) {
+  auto flags = TaskCreateFlags();
+  flags.setEnqueueJob(true);
+
+  AsyncLetTaskOptionRecord asyncLetOptionRecord(alet);
+  asyncLetOptionRecord.Parent = options;
+
+  swift_task_create(
+      flags.getOpaqueValue(),
+      &asyncLetOptionRecord,
+      futureResultType,
+      closureEntryPoint, closureContext);
 }
 
 // =============================================================================
@@ -128,18 +124,23 @@ static void swift_asyncLet_startImpl(AsyncLet *alet,
 
 SWIFT_CC(swiftasync)
 static void swift_asyncLet_waitImpl(
-    OpaqueValue *result, SWIFT_ASYNC_CONTEXT AsyncContext *rawContext,
-    AsyncLet *alet, Metadata *T) {
+    OpaqueValue *result, SWIFT_ASYNC_CONTEXT AsyncContext *callerContext,
+    AsyncLet *alet, TaskContinuationFunction *resumeFunction,
+    AsyncContext *callContext) {
   auto task = alet->getTask();
-  swift_task_future_wait(result, rawContext, task, T);
+  swift_task_future_wait(result, callerContext, task, resumeFunction,
+                         callContext);
 }
 
 SWIFT_CC(swiftasync)
 static void swift_asyncLet_wait_throwingImpl(
-    OpaqueValue *result, SWIFT_ASYNC_CONTEXT AsyncContext *rawContext,
-    AsyncLet *alet, Metadata *T) {
+    OpaqueValue *result, SWIFT_ASYNC_CONTEXT AsyncContext *callerContext,
+    AsyncLet *alet,
+    ThrowingTaskFutureWaitContinuationFunction *resumeFunction,
+    AsyncContext * callContext) {
   auto task = alet->getTask();
-  swift_task_future_wait_throwing(result, rawContext, task, T);
+  swift_task_future_wait_throwing(result, callerContext, task, resumeFunction,
+                                  callContext);
 }
 
 // =============================================================================
@@ -163,7 +164,8 @@ static void swift_asyncLet_endImpl(AsyncLet *alet) {
   assert(parent && "async-let must have a parent task");
 
 #if SWIFT_TASK_PRINTF_DEBUG
-  fprintf(stderr, "[%p] async let end of task %p, parent: %p\n", pthread_self(), task, parent);
+  fprintf(stderr, "[%lu] async let end of task %p, parent: %p\n",
+          _swift_get_thread_id(), task, parent);
 #endif
   _swift_task_dealloc_specific(parent, task);
 }

@@ -112,6 +112,7 @@ namespace swift {
   class TupleTypeElt;
   class EnumElementDecl;
   class ProtocolDecl;
+  class RequirementMachine;
   class SubstitutableType;
   class SourceManager;
   class ValueDecl;
@@ -524,6 +525,11 @@ public:
   FuncDecl *get##Name() const;
 #include "swift/AST/KnownDecls.def"
 
+  // Declare accessors for the known declarations.
+#define KNOWN_SDK_FUNC_DECL(Module, Name, Id) \
+  FuncDecl *get##Name() const;
+#include "swift/AST/KnownSDKDecls.def"
+
   /// Get the '+' function on two RangeReplaceableCollection.
   FuncDecl *getPlusFunctionOnRangeReplaceableCollection() const;
 
@@ -594,6 +600,11 @@ public:
 
   // Retrieve the declaration of Swift._stdlib_isOSVersionAtLeast.
   FuncDecl *getIsOSVersionAtLeastDecl() const;
+
+  /// Look for the declaration with the given name within the
+  /// passed in module.
+  void lookupInModule(ModuleDecl *M, StringRef name,
+                      SmallVectorImpl<ValueDecl *> &results) const;
 
   /// Look for the declaration with the given name within the
   /// Swift module.
@@ -737,6 +748,10 @@ public:
   /// Get the runtime availability of support for differentiation.
   AvailabilityContext getDifferentiationAvailability();
 
+  /// Get the runtime availability of getters and setters of multi payload enum
+  /// tag single payloads.
+  AvailabilityContext getMultiPayloadEnumTagSinglePayload();
+
   /// Get the runtime availability of features introduced in the Swift 5.2
   /// compiler for the target platform.
   AvailabilityContext getSwift52Availability();
@@ -752,6 +767,10 @@ public:
   /// Get the runtime availability of features introduced in the Swift 5.5
   /// compiler for the target platform.
   AvailabilityContext getSwift55Availability();
+
+  /// Get the runtime availability of features introduced in the Swift 5.6
+  /// compiler for the target platform.
+  AvailabilityContext getSwift56Availability();
 
   /// Get the runtime availability of features that have been introduced in the
   /// Swift compiler for future versions of the target platform.
@@ -1135,6 +1154,11 @@ public:
   /// canonical generic signature and module.
   GenericSignatureBuilder *getOrCreateGenericSignatureBuilder(
                                                      CanGenericSignature sig);
+
+  /// Retrieve or create a term rewriting system for answering queries on
+  /// type parameters written against the given generic signature.
+  RequirementMachine *getOrCreateRequirementMachine(
+      CanGenericSignature sig);
 
   /// Retrieve a generic signature with a single unconstrained type parameter,
   /// like `<T>`.

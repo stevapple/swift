@@ -77,6 +77,8 @@ bool DerivedConformance::derivesProtocolConformance(DeclContext *DC,
 
   if (*derivableKind == KnownDerivableProtocolKind::Actor)
     return canDeriveActor(DC, Nominal);
+  if (*derivableKind == KnownDerivableProtocolKind::DistributedActor)
+    return canDeriveDistributedActor(Nominal, DC);
 
   if (*derivableKind == KnownDerivableProtocolKind::AdditiveArithmetic)
     return canDeriveAdditiveArithmetic(Nominal, DC);
@@ -543,7 +545,7 @@ bool DerivedConformance::checkAndDiagnoseDisallowedContext(
   // A non-final class can't have an protocol-witnesss initializer in an
   // extension.
   if (auto CD = dyn_cast<ClassDecl>(Nominal)) {
-    if (!CD->isFinal() && isa<ConstructorDecl>(synthesizing) &&
+    if (!CD->isSemanticallyFinal() && isa<ConstructorDecl>(synthesizing) &&
         isa<ExtensionDecl>(ConformanceDecl)) {
       ConformanceDecl->diagnose(
           diag::cannot_synthesize_init_in_extension_of_nonfinal,

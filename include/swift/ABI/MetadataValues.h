@@ -45,7 +45,7 @@ enum {
 
   /// The number of words (in addition to the heap-object header)
   /// in a default actor.
-  NumWords_DefaultActor = 10,
+  NumWords_DefaultActor = 12,
 
   /// The number of words in a task.
   NumWords_AsyncTask = 16,
@@ -834,8 +834,10 @@ class TargetFunctionTypeFlags {
     ParamFlagsMask         = 0x02000000U,
     EscapingMask           = 0x04000000U,
     DifferentiableMask     = 0x08000000U,
+    GlobalActorMask        = 0x10000000U,
     AsyncMask              = 0x20000000U,
     SendableMask           = 0x40000000U,
+    // NOTE: The next bit will need to introduce a separate flags word.
   };
   int_type Data;
   
@@ -891,6 +893,12 @@ public:
         (isSendable ? SendableMask : 0));
   }
 
+  constexpr TargetFunctionTypeFlags<int_type>
+  withGlobalActor(bool globalActor) const {
+    return TargetFunctionTypeFlags<int_type>(
+        (Data & ~GlobalActorMask) | (globalActor ? GlobalActorMask : 0));
+  }
+
   unsigned getNumParameters() const { return Data & NumParametersMask; }
 
   FunctionMetadataConvention getConvention() const {
@@ -913,6 +921,10 @@ public:
 
   bool isDifferentiable() const {
     return bool (Data & DifferentiableMask);
+  }
+
+  bool hasGlobalActor() const {
+    return bool (Data & GlobalActorMask);
   }
 
   int_type getIntValue() const {
@@ -938,7 +950,8 @@ class TargetParameterTypeFlags {
     ValueOwnershipMask    = 0x7F,
     VariadicMask          = 0x80,
     AutoClosureMask       = 0x100,
-    NoDerivativeMask      = 0x200
+    NoDerivativeMask      = 0x200,
+    IsolatedMask          = 0x400,
   };
   int_type Data;
 
@@ -971,10 +984,17 @@ public:
         (Data & ~NoDerivativeMask) | (isNoDerivative ? NoDerivativeMask : 0));
   }
 
+  constexpr TargetParameterTypeFlags<int_type>
+  withIsolated(bool isIsolated) const {
+    return TargetParameterTypeFlags<int_type>(
+        (Data & ~IsolatedMask) | (isIsolated ? IsolatedMask : 0));
+  }
+
   bool isNone() const { return Data == 0; }
   bool isVariadic() const { return Data & VariadicMask; }
   bool isAutoClosure() const { return Data & AutoClosureMask; }
   bool isNoDerivative() const { return Data & NoDerivativeMask; }
+  bool isIsolated() const { return Data & IsolatedMask; }
 
   ValueOwnership getValueOwnership() const {
     return (ValueOwnership)(Data & ValueOwnershipMask);
@@ -2002,6 +2022,43 @@ enum class JobPriority : size_t {
   Unspecified     = 0x00,
 };
 
+/// Flags for task creation.
+class TaskCreateFlags : public FlagSet<size_t> {
+public:
+  enum {
+    Priority       = 0,
+    Priority_width = 8,
+
+    Task_IsChildTask                              = 8,
+    // bit 9 is unused
+    Task_CopyTaskLocals                           = 10,
+    Task_InheritContext                           = 11,
+    Task_EnqueueJob                               = 12,
+    Task_AddPendingGroupTaskUnconditionally       = 13,
+  };
+
+  explicit constexpr TaskCreateFlags(size_t bits) : FlagSet(bits) {}
+  constexpr TaskCreateFlags() {}
+
+  FLAGSET_DEFINE_FIELD_ACCESSORS(Priority, Priority_width, JobPriority,
+                                 getPriority, setPriority)
+  FLAGSET_DEFINE_FLAG_ACCESSORS(Task_IsChildTask,
+                                isChildTask,
+                                setIsChildTask)
+  FLAGSET_DEFINE_FLAG_ACCESSORS(Task_CopyTaskLocals,
+                                copyTaskLocals,
+                                setCopyTaskLocals)
+  FLAGSET_DEFINE_FLAG_ACCESSORS(Task_InheritContext,
+                                inheritContext,
+                                setInheritContext)
+  FLAGSET_DEFINE_FLAG_ACCESSORS(Task_EnqueueJob,
+                                enqueueJob,
+                                setEnqueueJob)
+  FLAGSET_DEFINE_FLAG_ACCESSORS(Task_AddPendingGroupTaskUnconditionally,
+                                addPendingGroupTaskUnconditionally,
+                                setAddPendingGroupTaskUnconditionally)
+};
+
 /// Flags for schedulable jobs.
 class JobFlags : public FlagSet<uint32_t> {
 public:
@@ -2016,10 +2073,11 @@ public:
 
     // Kind-specific flags.
 
-    Task_IsChildTask      = 24,
-    Task_IsFuture         = 25,
-    Task_IsGroupChildTask = 26,
-    Task_IsContinuingAsyncTask      = 27,
+    Task_IsChildTask           = 24,
+    Task_IsFuture              = 25,
+    Task_IsGroupChildTask      = 26,
+    // 27 is currently unused
+    Task_IsAsyncLetTask        = 28,
   };
 
   explicit JobFlags(uint32_t bits) : FlagSet(bits) {}
@@ -2049,9 +2107,9 @@ public:
   FLAGSET_DEFINE_FLAG_ACCESSORS(Task_IsGroupChildTask,
                                 task_isGroupChildTask,
                                 task_setIsGroupChildTask)
-  FLAGSET_DEFINE_FLAG_ACCESSORS(Task_IsContinuingAsyncTask,
-                                task_isContinuingAsyncTask,
-                                task_setIsContinuingAsyncTask)
+  FLAGSET_DEFINE_FLAG_ACCESSORS(Task_IsAsyncLetTask,
+                                task_isAsyncLetTask,
+                                task_setIsAsyncLetTask)
 };
 
 /// Kinds of task status record.
@@ -2081,6 +2139,16 @@ enum class TaskStatusRecordKind : uint8_t {
   Private_RecordLock = 192
 };
 
+/// Kinds of option records that can be passed to creating asynchronous tasks.
+enum class TaskOptionRecordKind : uint8_t {
+  /// Request a task to be kicked off, or resumed, on a specific executor.
+  Executor  = 0,
+  /// Request a child task to be part of a specific task group.
+  TaskGroup = 1,
+  /// Request a child task for an 'async let'.
+  AsyncLet  = 2,
+};
+
 /// Flags for cancellation records.
 class TaskStatusRecordFlags : public FlagSet<size_t> {
 public:
@@ -2096,6 +2164,24 @@ public:
   }
 
   FLAGSET_DEFINE_FIELD_ACCESSORS(Kind, Kind_width, TaskStatusRecordKind,
+                                 getKind, setKind)
+};
+
+/// Flags for task option records.
+class TaskOptionRecordFlags : public FlagSet<size_t> {
+public:
+  enum {
+    Kind           = 0,
+    Kind_width     = 8,
+  };
+
+  explicit TaskOptionRecordFlags(size_t bits) : FlagSet(bits) {}
+  constexpr TaskOptionRecordFlags() {}
+  TaskOptionRecordFlags(TaskOptionRecordKind kind) {
+    setKind(kind);
+  }
+
+  FLAGSET_DEFINE_FIELD_ACCESSORS(Kind, Kind_width, TaskOptionRecordKind,
                                  getKind, setKind)
 };
 

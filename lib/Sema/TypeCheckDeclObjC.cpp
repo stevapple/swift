@@ -435,7 +435,8 @@ static bool checkObjCActorIsolation(const ValueDecl *VD,
   auto behavior = behaviorLimitForObjCReason(Reason, VD->getASTContext());
 
   switch (auto restriction = ActorIsolationRestriction::forDeclaration(
-              const_cast<ValueDecl *>(VD), /*fromExpression=*/false)) {
+              const_cast<ValueDecl *>(VD), VD->getDeclContext(),
+              /*fromExpression=*/false)) {
   case ActorIsolationRestriction::CrossActorSelf:
     // FIXME: Substitution map?
     diagnoseNonConcurrentTypesInReference(
@@ -457,6 +458,9 @@ static bool checkObjCActorIsolation(const ValueDecl *VD,
   case ActorIsolationRestriction::GlobalActor:
     // FIXME: Consider whether to limit @objc on global-actor-qualified
     // declarations.
+  case ActorIsolationRestriction::DistributedActorSelf:
+    // we do not allow distributed + objc actors.
+    return false;
   case ActorIsolationRestriction::Unrestricted:
   case ActorIsolationRestriction::Unsafe:
     return false;
@@ -1267,10 +1271,11 @@ static Optional<ObjCReason> shouldMarkClassAsObjC(const ClassDecl *CD) {
       reason.describe(CD);
     }
 
-    // Only allow ObjC-rooted classes to be @objc.
+    // Only allow actors and ObjC-rooted classes to be @objc.
     // (Leave a hole for test cases.)
     if (ancestry.contains(AncestryFlags::ObjC) &&
-        !ancestry.contains(AncestryFlags::ClangImported)) {
+        !ancestry.contains(AncestryFlags::ClangImported) &&
+        !CD->isActor()) {
       if (ctx.LangOpts.EnableObjCAttrRequiresFoundation) {
         swift::diagnoseAndRemoveAttr(CD, attr,
                                      diag::invalid_objc_swift_rooted_class)
@@ -1588,8 +1593,10 @@ bool IsObjCRequest::evaluate(Evaluator &evaluator, ValueDecl *VD) const {
     // Members of classes can be @objc.
     isObjC = shouldMarkAsObjC(VD, isa<ConstructorDecl>(VD));
   }
-  else if (isa<ClassDecl>(VD)) {
+  else if (auto classDecl = dyn_cast<ClassDecl>(VD)) {
     // Classes can be @objc.
+
+
 
     // Protocols and enums can also be @objc, but this is covered by the
     // isObjC() check at the beginning.

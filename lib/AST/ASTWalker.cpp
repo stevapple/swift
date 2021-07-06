@@ -796,14 +796,15 @@ class Traversal : public ASTVisitor<Traversal, Expr*, Stmt*,
   Expr *visitCaptureListExpr(CaptureListExpr *expr) {
     for (auto c : expr->getCaptureList()) {
       if (Walker.shouldWalkCaptureInitializerExpressions()) {
-        for (auto entryIdx : range(c.Init->getNumPatternEntries())) {
-          if (auto newInit = doIt(c.Init->getInit(entryIdx)))
-            c.Init->setInit(entryIdx, newInit);
+        for (auto entryIdx : range(c.PBD->getNumPatternEntries())) {
+          if (auto newInit = doIt(c.PBD->getInit(entryIdx)))
+            c.PBD->setInit(entryIdx, newInit);
           else
             return nullptr;
         }
-      } else if (doIt(c.Var) || doIt(c.Init)) {
-        return nullptr;
+      } else {
+        if (doIt(c.PBD))
+          return nullptr;
       }
     }
 
@@ -1125,6 +1126,7 @@ class Traversal : public ASTVisitor<Traversal, Expr*, Stmt*,
       case KeyPathExpr::Component::Kind::Identity:
       case KeyPathExpr::Component::Kind::TupleElement:
       case KeyPathExpr::Component::Kind::DictionaryKey:
+      case KeyPathExpr::Component::Kind::CodeCompletion:
         // No subexpr to visit.
         break;
       }
@@ -1563,18 +1565,18 @@ Stmt *Traversal::visitForEachStmt(ForEachStmt *S) {
       return nullptr;
   }
 
-  if (Expr *Where = S->getWhere()) {
-    if ((Where = doIt(Where)))
-      S->setWhere(Where);
-    else
-      return nullptr;
-  }
-
   // The iterator decl is built directly on top of the sequence
   // expression, so don't visit both.
   if (Expr *Sequence = S->getSequence()) {
     if ((Sequence = doIt(Sequence)))
       S->setSequence(Sequence);
+    else
+      return nullptr;
+  }
+
+  if (Expr *Where = S->getWhere()) {
+    if ((Where = doIt(Where)))
+      S->setWhere(Where);
     else
       return nullptr;
   }
@@ -1849,8 +1851,16 @@ bool Traversal::visitOwnedTypeRepr(OwnedTypeRepr *T) {
   return doIt(T->getBase());
 }
 
+bool Traversal::visitIsolatedTypeRepr(IsolatedTypeRepr *T) {
+  return doIt(T->getBase());
+}
+
 bool Traversal::visitOpaqueReturnTypeRepr(OpaqueReturnTypeRepr *T) {
   return doIt(T->getConstraint());
+}
+
+bool Traversal::visitNamedOpaqueReturnTypeRepr(NamedOpaqueReturnTypeRepr *T) {
+  return doIt(T->getBase());
 }
 
 bool Traversal::visitPlaceholderTypeRepr(PlaceholderTypeRepr *T) {

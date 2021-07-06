@@ -574,15 +574,14 @@ CONTEXTUAL_SIMPLE_DECL_ATTR(actor, Actor,
   APIBreakingToAdd | APIBreakingToRemove,
   102)
 
-DECL_ATTR(actorIndependent, ActorIndependent,
-  OnClass | OnStruct | OnEnum | OnExtension | OnFunc | OnConstructor |
-  OnVar | OnSubscript | ConcurrencyOnly |
+CONTEXTUAL_SIMPLE_DECL_ATTR(isolated, Isolated,
+  DeclModifier | OnParam |
   ABIBreakingToAdd | ABIBreakingToRemove |
   APIBreakingToAdd | APIBreakingToRemove,
   103)
 
 SIMPLE_DECL_ATTR(globalActor, GlobalActor,
-  OnClass | OnStruct | OnEnum | ConcurrencyOnly |
+  OnClass | OnStruct | OnEnum |
   ABIStableToAdd | ABIBreakingToRemove |
   APIStableToAdd | APIBreakingToRemove,
   104)
@@ -659,10 +658,30 @@ CONTEXTUAL_SIMPLE_DECL_ATTR(spawn, Spawn,
   APIBreakingToAdd | APIBreakingToRemove,
   117)
 
+CONTEXTUAL_SIMPLE_DECL_ATTR(distributed, DistributedActor,
+  DeclModifier | OnClass | OnFunc |
+  DistributedOnly |
+  ABIBreakingToAdd | ABIBreakingToRemove |
+  APIBreakingToAdd | APIBreakingToRemove,
+  118)
+
+SIMPLE_DECL_ATTR(_distributedActorIndependent, DistributedActorIndependent,
+  OnFunc | OnVar |
+  DistributedOnly | UserInaccessible |
+  ABIStableToAdd | ABIStableToRemove |
+  APIBreakingToAdd | APIBreakingToRemove,
+  119)
+
+SIMPLE_DECL_ATTR(_assemblyVision, EmitAssemblyVisionRemarks,
+  OnFunc | UserInaccessible | NotSerialized |
+  ABIStableToAdd | ABIStableToRemove | APIStableToAdd | APIStableToRemove,
+  120)
+
 DECL_ATTR(package, Package, OnImport | 
   ABIStableToAdd | ABIStableToRemove | 
   APIStableToAdd | APIStableToRemove |
-  NotSerialized, 118)
+  NotSerialized,
+  121)
 
 #undef TYPE_ATTR
 #undef DECL_ATTR_ALIAS

@@ -1833,45 +1833,6 @@ bool Parser::parseNewDeclAttribute(DeclAttributes &Attributes, SourceLoc AtLoc,
     break;
   }
 
-  case DAK_ActorIndependent: {
-    // if no option is provided, then it's the 'safe' version.
-    if (!consumeIf(tok::l_paren)) {
-      if (!DiscardAttribute) {
-        AttrRange = SourceRange(Loc, Tok.getRange().getStart());
-        Attributes.add(new (Context) ActorIndependentAttr(AtLoc, AttrRange, 
-                                                  ActorIndependentKind::Safe));
-      }
-      break;
-    }
-
-    // otherwise, make sure it looks like an identifier.
-    if (Tok.isNot(tok::identifier)) {
-      diagnose(Loc, diag::attr_expected_option_such_as, AttrName, "unsafe");
-      return false;
-    }
-
-    // make sure the identifier is 'unsafe'
-    if (Tok.getText() != "unsafe") {
-      diagnose(Loc, diag::attr_unknown_option, Tok.getText(), AttrName);
-      return false;
-    }
-
-    consumeToken(tok::identifier);
-    AttrRange = SourceRange(Loc, Tok.getRange().getStart());
-    
-    if (!consumeIf(tok::r_paren)) {
-      diagnose(Loc, diag::attr_expected_rparen, AttrName,
-               DeclAttribute::isDeclModifier(DK));
-      return false;
-    }
-
-    if (!DiscardAttribute)
-      Attributes.add(new (Context) ActorIndependentAttr(AtLoc, AttrRange, 
-                                                ActorIndependentKind::Unsafe));
-
-    break;
-  }
-
   case DAK_Optimize: {
     if (!consumeIf(tok::l_paren)) {
       diagnose(Loc, diag::attr_expected_lparen, AttrName,
@@ -2811,7 +2772,7 @@ bool Parser::parseNewDeclAttribute(DeclAttributes &Attributes, SourceLoc AtLoc,
       .highlight(DuplicateAttribute->getRange());
   }
 
-    // If this is a decl modifier spelled with an @, emit an error and remove it
+  // If this is a decl modifier spelled with an @, emit an error and remove it
   // with a fixit.
   if (AtLoc.isValid() && DeclAttribute::isDeclModifier(DK))
     diagnose(AtLoc, diag::cskeyword_not_attribute, AttrName).fixItRemove(AtLoc);
@@ -2926,7 +2887,7 @@ ParserResult<CustomAttr> Parser::parseCustomAttribute(
   SyntaxContext->setCreateSyntax(SyntaxKind::CustomAttribute);
 
   // Parse a custom attribute.
-  auto type = parseType(diag::expected_type);
+  auto type = parseType(diag::expected_type, ParseTypeReason::CustomAttribute);
   if (type.hasCodeCompletion() || type.isNull()) {
     if (Tok.is(tok::l_paren) && isCustomAttributeArgument())
       skipSingle();
@@ -3093,6 +3054,16 @@ ParserStatus Parser::parseDeclAttribute(
   // Historical name for @Sendable.
   checkInvalidAttrName(
       "concurrent", "Sendable", DAK_Sendable, diag::attr_renamed_warning);
+
+  // Historical name for 'nonisolated'.
+  if (DK == DAK_Count && Tok.getText() == "actorIndependent") {
+    diagnose(
+        Tok, diag::attr_renamed_to_modifier_warning, "actorIndependent", 
+        "nonisolated")
+      .fixItReplace(SourceRange(AtLoc, Tok.getLoc()), "nonisolated");
+    DK = DAK_Nonisolated;
+    AtLoc = SourceLoc();
+  }
 
   if (DK == DAK_Count && Tok.getText() == "warn_unused_result") {
     // The behavior created by @warn_unused_result is now the default. Emit a
@@ -3646,9 +3617,11 @@ ParserStatus Parser::parseDeclAttributeList(DeclAttributes &Attributes) {
 //      '__consuming'
 //      'convenience'
 //      'actor'
+//      'distributed'
 bool Parser::parseDeclModifierList(DeclAttributes &Attributes,
                                    SourceLoc &StaticLoc,
-                                   StaticSpellingKind &StaticSpelling) {
+                                   StaticSpellingKind &StaticSpelling,
+                                   bool isFromClangAttribute) {
   SyntaxParsingContext ListContext(SyntaxContext, SyntaxKind::ModifierList);
   bool isError = false;
   bool hasModifier = false;
@@ -3716,7 +3689,8 @@ bool Parser::parseDeclModifierList(DeclAttributes &Attributes,
 
       SyntaxParsingContext ModContext(SyntaxContext,
                                       SyntaxKind::DeclModifier);
-      isError |= parseNewDeclAttribute(Attributes, /*AtLoc=*/{}, Kind);
+      isError |= parseNewDeclAttribute(
+          Attributes, /*AtLoc=*/{}, Kind, isFromClangAttribute);
       hasModifier = true;
       continue;
     }
@@ -3811,13 +3785,24 @@ bool Parser::parseDeclModifierList(DeclAttributes &Attributes,
 ParserStatus
 Parser::parseTypeAttributeListPresent(ParamDecl::Specifier &Specifier,
                                       SourceLoc &SpecifierLoc,
+                                      SourceLoc &IsolatedLoc,
                                       TypeAttributes &Attributes) {
   PatternBindingInitializer *initContext = nullptr;
   Specifier = ParamDecl::Specifier::Default;
   while (Tok.is(tok::kw_inout) ||
-         (Tok.is(tok::identifier) &&
-          (Tok.getRawText().equals("__shared") ||
-           Tok.getRawText().equals("__owned")))) {
+         Tok.isContextualKeyword("__shared") ||
+         Tok.isContextualKeyword("__owned") ||
+         Tok.isContextualKeyword("isolated")) {
+
+    if (Tok.isContextualKeyword("isolated")) {
+      if (IsolatedLoc.isValid()) {
+        diagnose(Tok, diag::parameter_specifier_repeated)
+          .fixItRemove(SpecifierLoc);
+      }
+      IsolatedLoc = consumeToken();
+      continue;
+    }
+
     if (SpecifierLoc.isValid()) {
       diagnose(Tok, diag::parameter_specifier_repeated)
         .fixItRemove(SpecifierLoc);
@@ -5239,7 +5224,9 @@ bool Parser::delayParsingDeclList(SourceLoc LBLoc, SourceLoc &RBLoc,
   if (Tok.is(tok::r_brace)) {
     RBLoc = consumeToken();
   } else {
-    RBLoc = Tok.getLoc();
+    // Non-delayed parsing would set the RB location to the LB if it is missing,
+    // match that behaviour here
+    RBLoc = LBLoc;
     error = true;
   }
   return error;

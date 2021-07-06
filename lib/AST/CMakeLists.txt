@@ -73,6 +73,11 @@ add_swift_host_library(swiftAST STATIC
   ProtocolConformance.cpp
   RawComment.cpp
   RequirementEnvironment.cpp
+  RequirementMachine/EquivalenceClassMap.cpp
+  RequirementMachine/ProtocolGraph.cpp
+  RequirementMachine/RequirementMachine.cpp
+  RequirementMachine/RewriteSystem.cpp
+  RequirementMachine/RewriteSystemCompletion.cpp
   SILLayout.cpp
   Stmt.cpp
   SubstitutionMap.cpp

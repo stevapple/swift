@@ -354,6 +354,13 @@ static void installCodingKeysIfNecessary(NominalTypeDecl *NTD) {
   (void)evaluateOrDefault(NTD->getASTContext().evaluator, req, {});
 }
 
+// TODO: same ugly hack as Codable does...
+static void installDistributedActorIfNecessary(NominalTypeDecl *NTD) {
+  auto req =
+    ResolveImplicitMemberRequest{NTD, ImplicitMemberAction::ResolveDistributedActor};
+  (void)evaluateOrDefault(NTD->getASTContext().evaluator, req, {});
+}
+
 // Check for static properties that produce empty option sets
 // using a rawValue initializer with a value of '0'
 static void checkForEmptyOptionSet(const VarDecl *VD) {
@@ -1218,6 +1225,7 @@ static std::string getFixItStringForDecodable(ClassDecl *CD,
 static void diagnoseClassWithoutInitializers(ClassDecl *classDecl) {
   ASTContext &C = classDecl->getASTContext();
   C.Diags.diagnose(classDecl, diag::class_without_init,
+                   classDecl->isExplicitActor(),
                    classDecl->getDeclaredType());
 
   // HACK: We've got a special case to look out for and diagnose specifically to
@@ -1401,6 +1409,28 @@ static void maybeDiagnoseClassWithoutInitializers(ClassDecl *classDecl) {
   diagnoseClassWithoutInitializers(classDecl);
 }
 
+void TypeChecker::checkResultType(Type resultType,
+                                  DeclContext *owner) {
+//  // Only distributed functions have special requirements on return types.
+//  if (!owner->isDistributed())
+//    return;
+//
+//  auto conformanceDC = owner->getConformanceContext();
+//
+//  // Result type of distributed functions must be Codable.
+//  auto target =
+//      conformanceDC->mapTypeIntoContext(it->second->getValueInterfaceType());
+//  if (TypeChecker::conformsToProtocol(target, derived.Protocol, conformanceDC)
+//      .isInvalid()) {
+//    TypeLoc typeLoc = {
+//        it->second->getTypeReprOrParentPatternTypeRepr(),
+//        it->second->getType(),
+//    };
+//    it->second->diagnose(diag::codable_non_conforming_property_here,
+//                         derived.getProtocolType(), typeLoc);
+//    propertiesAreValid = false;
+}
+
 void TypeChecker::diagnoseDuplicateBoundVars(Pattern *pattern) {
   SmallVector<VarDecl *, 2> boundVars;
   pattern->collectVariables(boundVars);
@@ -1411,7 +1441,7 @@ void TypeChecker::diagnoseDuplicateBoundVars(Pattern *pattern) {
 void TypeChecker::diagnoseDuplicateCaptureVars(CaptureListExpr *expr) {
   SmallVector<VarDecl *, 2> captureListVars;
   for (auto &capture : expr->getCaptureList())
-    captureListVars.push_back(capture.Var);
+    captureListVars.push_back(capture.getVar());
 
   diagnoseDuplicateDecls(captureListVars);
 }
@@ -1650,6 +1680,9 @@ public:
       // Check whether the member is @objc or dynamic.
       (void) VD->isObjC();
       (void) VD->isDynamic();
+
+      // Check for actor isolation.
+      (void)getActorIsolation(VD);
 
       // If this is a member of a nominal type, don't allow it to have a name of
       // "Type" or "Protocol" since we reserve the X.Type and X.Protocol
@@ -2238,6 +2271,7 @@ public:
     TypeChecker::addImplicitConstructors(SD);
 
     installCodingKeysIfNecessary(SD);
+    installDistributedActorIfNecessary(SD);
 
     TypeChecker::checkDeclAttributes(SD);
 
@@ -2364,10 +2398,18 @@ public:
 
     if (auto superclass = CD->getSuperclassDecl()) {
       // Actors cannot have superclasses, nor can they be superclasses.
-      if (CD->isActor() && !superclass->isNSObject())
-        CD->diagnose(diag::actor_inheritance);
-      else if (superclass->isActor())
-        CD->diagnose(diag::actor_inheritance);
+      if (CD->isActor()) {
+        CD->diagnose(diag::actor_inheritance,
+                     /*distributed=*/CD->isDistributedActor());
+        if (superclass->isNSObject() && !CD->isDistributedActor()) {
+          CD->diagnose(diag::actor_inheritance_nsobject, CD->getName())
+            .fixItInsert(CD->getAttributeInsertionLoc(/*forModifier=*/false),
+                         "@objc ");
+        }
+      } else if (superclass->isActor()) {
+        CD->diagnose(diag::actor_inheritance,
+                     /*distributed=*/CD->isDistributedActor());
+      }
     }
 
     // Force lowering of stored properties.
@@ -2644,6 +2686,7 @@ public:
       checkAccessControl(FD);
 
       TypeChecker::checkParameterList(FD->getParameters(), FD);
+      TypeChecker::checkResultType(FD->getResultInterfaceType(), FD);
     }
 
     TypeChecker::checkDeclAttributes(FD);

@@ -357,7 +357,8 @@ class InheritedProtocolCollector {
   /// For each type in \p directlyInherited, classify the protocols it refers to
   /// as included for printing or not, and record them in the appropriate
   /// vectors.
-  void recordProtocols(ArrayRef<TypeLoc> directlyInherited, const Decl *D) {
+  void recordProtocols(ArrayRef<TypeLoc> directlyInherited, const Decl *D,
+                       bool skipSynthesized = false) {
     Optional<AvailableAttrList> availableAttrs;
 
     for (TypeLoc inherited : directlyInherited) {
@@ -377,6 +378,9 @@ class InheritedProtocolCollector {
       // FIXME: This ignores layout constraints, but currently we don't support
       // any of those besides 'AnyObject'.
     }
+
+    if (skipSynthesized)
+      return;
 
     // Check for synthesized protocols, like Hashable on enums.
     if (auto *nominal = dyn_cast<NominalTypeDecl>(D)) {
@@ -455,7 +459,8 @@ public:
     if (auto *CD = dyn_cast<ClassDecl>(D)) {
       for (auto *SD = CD->getSuperclassDecl(); SD;
            SD = SD->getSuperclassDecl()) {
-        map[nominal].recordProtocols(SD->getInherited(), SD);
+        map[nominal].recordProtocols(
+            SD->getInherited(), SD, /*skipSynthesized=*/true);
         for (auto *Ext: SD->getExtensions()) {
           if (shouldInclude(Ext)) {
             map[nominal].recordProtocols(Ext->getInherited(), Ext);
@@ -562,7 +567,8 @@ public:
           return TypeWalker::Action::Continue;
 
         if (isPublicOrUsableFromInline(inherited) &&
-            conformanceDeclaredInModule(M, nominal, inherited)) {
+            conformanceDeclaredInModule(M, nominal, inherited) &&
+            !M->isImportedImplementationOnly(inherited->getParentModule())) {
           protocolsToPrint.push_back({inherited, protoAndAvailability.second});
           return TypeWalker::Action::SkipChildren;
         }
@@ -589,10 +595,16 @@ public:
       DeclAttributes::print(printer, printOptions, attrs);
 
       printer << "extension ";
-      PrintOptions typePrintOptions = printOptions;
-      typePrintOptions.FullyQualifiedTypes = false;
-      typePrintOptions.FullyQualifiedTypesIfAmbiguous = false;
-      nominal->getDeclaredType().print(printer, typePrintOptions);
+      {
+        PrintOptions typePrintOptions = printOptions;
+        bool oldFullyQualifiedTypesIfAmbiguous =
+          typePrintOptions.FullyQualifiedTypesIfAmbiguous;
+        typePrintOptions.FullyQualifiedTypesIfAmbiguous =
+          typePrintOptions.FullyQualifiedExtendedTypesIfAmbiguous;
+        nominal->getDeclaredType().print(printer, typePrintOptions);
+        typePrintOptions.FullyQualifiedTypesIfAmbiguous =
+          oldFullyQualifiedTypesIfAmbiguous;
+      }
       printer << " : ";
 
       proto->getDeclaredInterfaceType()->print(printer, printOptions);

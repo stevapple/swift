@@ -1269,6 +1269,17 @@ void InterfaceSubContextDelegateImpl::inheritOptionsForBuildingInterface(
     GenericArgs.push_back(triple);
   }
 
+  if (LangOpts.ClangTarget.hasValue()) {
+    genericSubInvocation.getLangOptions().ClangTarget = LangOpts.ClangTarget;
+    auto triple = ArgSaver.save(genericSubInvocation.getLangOptions()
+      .ClangTarget->getTriple());
+    assert(!triple.empty());
+    // In explicit module build, all PCMs will be built using the given clang target.
+    // So the Swift interface should know that as well to load these PCMs properly.
+    GenericArgs.push_back("-clang-target");
+    GenericArgs.push_back(triple);
+  }
+
   // Inherit the Swift language version
   genericSubInvocation.getLangOptions().EffectiveLanguageVersion =
     LangOpts.EffectiveLanguageVersion;
@@ -1335,7 +1346,7 @@ bool InterfaceSubContextDelegateImpl::extractSwiftInterfaceVersionAndArgs(
              diag::error_extracting_version_from_module_interface);
     return true;
   }
-  if (extractCompilerFlagsFromInterface(SB, ArgSaver, SubArgs)) {
+  if (extractCompilerFlagsFromInterface(interfacePath, SB, ArgSaver, SubArgs)) {
     diagnose(interfacePath, diagnosticLoc,
              diag::error_extracting_version_from_module_interface);
     return true;

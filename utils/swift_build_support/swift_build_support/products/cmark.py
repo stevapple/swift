@@ -10,9 +10,8 @@
 #
 # ----------------------------------------------------------------------------
 
-from build_swift.build_swift.wrappers import xcrun
-
 from . import cmake_product
+from . import earlyswiftdriver
 
 
 class CMark(cmake_product.CMakeProduct):
@@ -32,10 +31,11 @@ class CMark(cmake_product.CMakeProduct):
         """
         return True
 
-    # This is the root of the build-graph, so it doesn't have any dependencies.
+    # EarlySwiftDriver is the root of the graph, and is the only dependency of
+    # this product.
     @classmethod
     def get_dependencies(cls):
-        return []
+        return [earlyswiftdriver.EarlySwiftDriver]
 
     def should_build(self, host_target):
         """should_build() -> Bool
@@ -59,20 +59,12 @@ class CMark(cmake_product.CMakeProduct):
            host_target.startswith("appletv") or \
            host_target.startswith("watch"):
 
-            cmake_os_sysroot = xcrun.sdk_path(platform)
-
-            cmake_osx_deployment_target = ''
-            if platform == "macosx":
-                cmake_osx_deployment_target = self.args.darwin_deployment_version_osx
-
             common_c_flags = ' '.join(self.common_cross_c_flags(platform, arch))
 
             self.cmake_options.define('CMAKE_C_FLAGS', common_c_flags)
             self.cmake_options.define('CMAKE_CXX_FLAGS', common_c_flags)
-            self.cmake_options.define('CMAKE_OSX_SYSROOT:PATH', cmake_os_sysroot)
-            self.cmake_options.define('CMAKE_OSX_DEPLOYMENT_TARGET',
-                                      cmake_osx_deployment_target)
-            self.cmake_options.define('CMAKE_OSX_ARCHITECTURES', arch)
+            toolchain_file = self.generate_darwin_toolchain_file(platform, arch)
+            self.cmake_options.define('CMAKE_TOOLCHAIN_FILE:PATH', toolchain_file)
 
         self.build_with_cmake(["all"], self.args.cmark_build_variant, [])
 
@@ -84,7 +76,7 @@ class CMark(cmake_product.CMakeProduct):
         if self.is_cross_compile_target(host_target):
             return False
 
-        return self.args.test
+        return self.args.test_cmark
 
     def test(self, host_target):
         """
