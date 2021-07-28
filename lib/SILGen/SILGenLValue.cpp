@@ -564,7 +564,8 @@ namespace {
 } // end anonymous namespace
 
 static SILValue enterAccessScope(SILGenFunction &SGF, SILLocation loc,
-                                 SILValue addr, LValueTypeData typeData,
+                                 ManagedValue base, SILValue addr,
+                                 LValueTypeData typeData,
                                  SGFAccessKind accessKind,
                                  SILAccessEnforcement enforcement,
                                  Optional<ActorIsolation> actorIso) {
@@ -574,10 +575,8 @@ static SILValue enterAccessScope(SILGenFunction &SGF, SILLocation loc,
   assert(SGF.isInFormalEvaluationScope() &&
          "tried to enter access scope without a writeback scope!");
 
-  // Only expecting global-actor isolation here, since there's no base / self.
-  assert(!actorIso || actorIso->isGlobalActor());
   ExecutorBreadcrumb prevExecutor =
-      SGF.emitHopToTargetActor(loc, actorIso, /*maybeSelf=*/None);
+      SGF.emitHopToTargetActor(loc, actorIso, base);
 
   // Enter the access.
   addr = SGF.B.createBeginAccess(loc, addr, silAccessKind, enforcement,
@@ -596,13 +595,14 @@ static SILValue enterAccessScope(SILGenFunction &SGF, SILLocation loc,
 }
 
 static ManagedValue enterAccessScope(SILGenFunction &SGF, SILLocation loc,
-                                     ManagedValue addr, LValueTypeData typeData,
+                                     ManagedValue base, ManagedValue addr,
+                                     LValueTypeData typeData,
                                      SGFAccessKind accessKind,
                                      SILAccessEnforcement enforcement,
                                      Optional<ActorIsolation> actorIso) {
   return ManagedValue::forLValue(
-           enterAccessScope(SGF, loc, addr.getLValueAddress(), typeData,
-                            accessKind, enforcement, actorIso));
+      enterAccessScope(SGF, loc, base, addr.getLValueAddress(), typeData,
+                       accessKind, enforcement, actorIso));
 }
 
 // Find the base of the formal access at `address`. If the base requires an
@@ -758,7 +758,7 @@ namespace {
       // declarations. Access marker verification is aware of these cases.
       if (!IsNonAccessing && !Field->isLet()) {
         if (auto enforcement = SGF.getDynamicEnforcement(Field)) {
-          result = enterAccessScope(SGF, loc, result, getTypeData(),
+          result = enterAccessScope(SGF, loc, base, result, getTypeData(),
                                     getAccessKind(), *enforcement,
                                     takeActorIsolation());
         }
@@ -1034,9 +1034,9 @@ namespace {
         return Value;
 
       SILValue addr = Value.getLValueAddress();
-      addr = enterAccessScope(SGF, loc, addr, getTypeData(),
-                              getAccessKind(), *Enforcement,
-                              takeActorIsolation());
+      addr =
+          enterAccessScope(SGF, loc, base, addr, getTypeData(), getAccessKind(),
+                           *Enforcement, takeActorIsolation());
 
       return ManagedValue::forLValue(addr);
     }
@@ -1798,9 +1798,9 @@ namespace {
       }
 
       // Enter an unsafe access scope for the access.
-      addr = enterAccessScope(SGF, loc, addr, getTypeData(), getAccessKind(),
-                              SILAccessEnforcement::Unsafe,
-                              ActorIso);
+      addr =
+          enterAccessScope(SGF, loc, base, addr, getTypeData(), getAccessKind(),
+                           SILAccessEnforcement::Unsafe, ActorIso);
 
       return addr;
     }
@@ -2837,14 +2837,6 @@ SILGenFunction::maybeEmitValueOfLocalVarDecl(
   // For local decls, use the address we allocated or the value if we have it.
   auto It = VarLocs.find(var);
   if (It != VarLocs.end()) {
-    // If the variable is part of an async let, ensure that the child task
-    // has completed first.
-    if (var->isAsyncLet() && accessKind != AccessKind::Write) {
-      auto patternBinding = var->getParentPatternBinding();
-      unsigned index = patternBinding->getPatternEntryIndexForVarDecl(var);
-      completeAsyncLetChildTask(patternBinding, index);
-    }
-
     // If this has an address, return it.  By-value let's have no address.
     SILValue ptr = It->second.value;
     if (ptr->getType().isAddress())
@@ -2868,6 +2860,9 @@ SILGenFunction::emitAddressOfLocalVarDecl(SILLocation loc, VarDecl *var,
   assert(var->getDeclContext()->isLocalContext());
   assert(var->getImplInfo().isSimpleStored());
   AccessKind astAccessKind = mapAccessKind(accessKind);
+  
+  assert(!var->isAsyncLet() && "async let does not have an address");
+  
   auto address = maybeEmitValueOfLocalVarDecl(var, astAccessKind);
   assert(address);
   assert(address.isLValue());
@@ -2883,6 +2878,12 @@ RValue SILGenFunction::emitRValueForNonMemberVarDecl(SILLocation loc,
   FormalEvaluationScope scope(*this);
 
   auto *var = cast<VarDecl>(declRef.getDecl());
+  // If the variable is part of an async let, get the result from the child
+  // task.
+  if (var->isAsyncLet()) {
+    return RValue(*this, loc, formalRValueType,
+                  emitReadAsyncLetBinding(loc, var));
+  }
   auto localValue = maybeEmitValueOfLocalVarDecl(var, AccessKind::Read);
 
   // If this VarDecl is represented as an address, emit it as an lvalue, then

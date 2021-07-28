@@ -28,6 +28,7 @@
 #include "swift/Basic/LangOptions.h"
 #include "swift/Basic/Located.h"
 #include "swift/Basic/Malloc.h"
+#include "swift/SymbolGraphGen/SymbolGraphOptions.h"
 #include "clang/AST/DeclTemplate.h"
 #include "llvm/ADT/ArrayRef.h"
 #include "llvm/ADT/DenseMap.h"
@@ -112,7 +113,6 @@ namespace swift {
   class TupleTypeElt;
   class EnumElementDecl;
   class ProtocolDecl;
-  class RequirementMachine;
   class SubstitutableType;
   class SourceManager;
   class ValueDecl;
@@ -133,6 +133,10 @@ namespace swift {
 
 namespace namelookup {
   class ImportCache;
+}
+
+namespace rewriting {
+  class RequirementMachine;
 }
 
 namespace syntax {
@@ -232,6 +236,7 @@ class ASTContext final {
   ASTContext(LangOptions &langOpts, TypeCheckerOptions &typeckOpts,
              SearchPathOptions &SearchPathOpts,
              ClangImporterOptions &ClangImporterOpts,
+             symbolgraphgen::SymbolGraphOptions &SymbolGraphOpts,
              SourceManager &SourceMgr,
              DiagnosticEngine &Diags);
 
@@ -247,6 +252,7 @@ public:
   static ASTContext *get(LangOptions &langOpts, TypeCheckerOptions &typeckOpts,
                          SearchPathOptions &SearchPathOpts,
                          ClangImporterOptions &ClangImporterOpts,
+                         symbolgraphgen::SymbolGraphOptions &SymbolGraphOpts,
                          SourceManager &SourceMgr, DiagnosticEngine &Diags);
   ~ASTContext();
 
@@ -267,6 +273,9 @@ public:
 
   /// The clang importer options used by this AST context.
   ClangImporterOptions &ClangImporterOpts;
+
+  /// The symbol graph generation options used by this AST context.
+  symbolgraphgen::SymbolGraphOptions &SymbolGraphOpts;
 
   /// The source manager object.
   SourceManager &SourceMgr;
@@ -1017,7 +1026,8 @@ public:
                  ProtocolDecl *protocol,
                  SourceLoc loc,
                  DeclContext *dc,
-                 ProtocolConformanceState state);
+                 ProtocolConformanceState state,
+                 bool isUnchecked);
 
   /// Produce a self-conformance for the given protocol.
   SelfProtocolConformance *
@@ -1157,7 +1167,7 @@ public:
 
   /// Retrieve or create a term rewriting system for answering queries on
   /// type parameters written against the given generic signature.
-  RequirementMachine *getOrCreateRequirementMachine(
+  rewriting::RequirementMachine *getOrCreateRequirementMachine(
       CanGenericSignature sig);
 
   /// Retrieve a generic signature with a single unconstrained type parameter,

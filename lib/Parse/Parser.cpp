@@ -29,6 +29,7 @@
 #include "swift/Parse/ParseSILSupport.h"
 #include "swift/Parse/SyntaxParseActions.h"
 #include "swift/Parse/SyntaxParsingContext.h"
+#include "swift/SymbolGraphGen/SymbolGraphOptions.h"
 #include "swift/Syntax/RawSyntax.h"
 #include "swift/Syntax/TokenSyntax.h"
 #include "swift/SyntaxParse/SyntaxTreeCreator.h"
@@ -1226,6 +1227,7 @@ struct ParserUnit::Implementation {
   TypeCheckerOptions TypeCheckerOpts;
   SearchPathOptions SearchPathOpts;
   ClangImporterOptions clangImporterOpts;
+  symbolgraphgen::SymbolGraphOptions symbolGraphOpts;
   DiagnosticEngine Diags;
   ASTContext &Ctx;
   SourceFile *SF;
@@ -1238,7 +1240,7 @@ struct ParserUnit::Implementation {
       : SPActions(std::move(spActions)), LangOpts(Opts),
         TypeCheckerOpts(TyOpts), Diags(SM),
         Ctx(*ASTContext::get(LangOpts, TypeCheckerOpts, SearchPathOpts,
-                             clangImporterOpts, SM, Diags)) {
+                             clangImporterOpts, symbolGraphOpts, SM, Diags)) {
     auto parsingOpts = SourceFile::getDefaultParsingOptions(LangOpts);
     parsingOpts |= ParsingFlags::DisableDelayedBodies;
     parsingOpts |= ParsingFlags::DisablePoundIfEvaluation;
@@ -1501,10 +1503,6 @@ DeclNameRef swift::formDeclNameRef(ASTContext &ctx,
 
   // Build the result.
   return DeclNameRef({ ctx, baseNameId, argumentLabelIds });
-}
-
-DeclName swift::parseDeclName(ASTContext &ctx, StringRef name) {
-  return parseDeclName(name).formDeclName(ctx);
 }
 
 void PrettyStackTraceParser::print(llvm::raw_ostream &out) const {

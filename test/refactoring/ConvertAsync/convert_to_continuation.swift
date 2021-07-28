@@ -1,19 +1,21 @@
 // RUN: %empty-directory(%t)
 
-func withAsyncAlternative(completionHandler: (Int) -> Void) {}
+func withAsyncAlternative(completionHandler: @escaping (Int) -> Void) {}
 func withAsyncAlternative() async -> Int { return 42 }
-func withAsyncThrowingAlternative(completionHandler: (Int?, Error?) -> Void) {}
+func withAsyncThrowingAlternative(completionHandler: @escaping (Int?, Error?) -> Void) {}
 func withAsyncThrowingAlternative() async throws -> Int { return 42 }
 
-func withoutAsyncAlternativeBecauseOfMismatchedCompletionHandlerName(closure: (Int) -> Void) {}
-func withoutAsyncAlternativeBecauseOfReturnValue(completionHandler: (Int) -> Void) -> Bool { return true }
-func withoutAsyncAlternativeThrowing(closure: (Int?, Error?) -> Void) {}
-func asyncVoidWithoutAlternative(completionHandler2: () -> Void) {}
-func resultWithoutAlternative(completionHandler2: (Result<Int, Error>) -> Void) {}
+func withoutAsyncAlternativeBecauseOfMismatchedCompletionHandlerName(closure: @escaping (Int) -> Void) {}
+func withoutAsyncAlternativeBecauseOfReturnValue(completionHandler: @escaping (Int) -> Void) -> Bool { return true }
+func withoutAsyncAlternativeThrowing(closure: @escaping (Int?, Error?) -> Void) {}
+func withoutAsyncAlternativeThrowingWithMultipleResults(closure: @escaping (Int?, String?, Error?) -> Void) {}
+func asyncVoidWithoutAlternative(completionHandler2: @escaping () -> Void) {}
+func resultWithoutAlternative(completionHandler2: @escaping (Result<Int, Error>) -> Void) {}
 
+struct MyError: Error {}
 
 // RUN: %refactor-check-compiles -convert-to-async -dump-text -source-filename %s -pos=%(line+1):1 | %FileCheck -check-prefix=CREATE-CONTINUATION %s
-func testCreateContinuation(completionHandler: (Int) -> Void) {
+func testCreateContinuation(completionHandler: @escaping (Int) -> Void) {
   withoutAsyncAlternativeBecauseOfMismatchedCompletionHandlerName {
     completionHandler($0)
   }
@@ -26,8 +28,22 @@ func testCreateContinuation(completionHandler: (Int) -> Void) {
 // CREATE-CONTINUATION-NEXT:   }
 // CREATE-CONTINUATION-NEXT: }
 
+// RUN: %refactor-check-compiles -convert-to-async -dump-text -source-filename %s -pos=%(line+1):1 | %FileCheck -check-prefix=CREATE-CONTINUATION-HANDLER-CALL-IN-PARENS %s
+func testCreateContinuationWithCompletionHandlerCallInParens(completionHandler: @escaping (Int) -> Void) {
+  withoutAsyncAlternativeBecauseOfMismatchedCompletionHandlerName {
+    (completionHandler($0))
+  }
+}
+// CREATE-CONTINUATION-HANDLER-CALL-IN-PARENS:      func testCreateContinuationWithCompletionHandlerCallInParens() async -> Int {
+// CREATE-CONTINUATION-HANDLER-CALL-IN-PARENS-NEXT:   return await withCheckedContinuation { continuation in 
+// CREATE-CONTINUATION-HANDLER-CALL-IN-PARENS-NEXT:     withoutAsyncAlternativeBecauseOfMismatchedCompletionHandlerName {
+// CREATE-CONTINUATION-HANDLER-CALL-IN-PARENS-NEXT:       continuation.resume(returning: $0)
+// CREATE-CONTINUATION-HANDLER-CALL-IN-PARENS-NEXT:     }
+// CREATE-CONTINUATION-HANDLER-CALL-IN-PARENS-NEXT:   }
+// CREATE-CONTINUATION-HANDLER-CALL-IN-PARENS-NEXT: }
+
 // RUN: %refactor-check-compiles -convert-to-async -dump-text -source-filename %s -pos=%(line+1):1 | %FileCheck -check-prefix=CREATE-CONTINUATION-BECAUSE-RETURN-VALUE %s
-func testCreateContinuationBecauseOfReturnValue(completionHandler: (Int) -> Void) {
+func testCreateContinuationBecauseOfReturnValue(completionHandler: @escaping (Int) -> Void) {
   _ = withoutAsyncAlternativeBecauseOfReturnValue {
     completionHandler($0)
   }
@@ -41,7 +57,7 @@ func testCreateContinuationBecauseOfReturnValue(completionHandler: (Int) -> Void
 // CREATE-CONTINUATION-BECAUSE-RETURN-VALUE-NEXT: }
 
 // RUN: %refactor-check-compiles -convert-to-async -dump-text -source-filename %s -pos=%(line+1):1 | %FileCheck -check-prefix=CREATE-CONTINUATION-BECAUSE-RETURN-VALUE-2 %s
-func testCreateContinuationBecauseOfReturnValue2(completionHandler: (Int) -> Void) {
+func testCreateContinuationBecauseOfReturnValue2(completionHandler: @escaping (Int) -> Void) {
   let x = withoutAsyncAlternativeBecauseOfReturnValue {
     completionHandler($0)
   }
@@ -57,7 +73,7 @@ func testCreateContinuationBecauseOfReturnValue2(completionHandler: (Int) -> Voi
 // CREATE-CONTINUATION-BECAUSE-RETURN-VALUE-2-NEXT: }
 
 // RUN: %refactor-check-compiles -convert-to-async -dump-text -source-filename %s -pos=%(line+1):1 | %FileCheck -check-prefix=CONTINUATION-IN-NESTED-EXPRESSION %s
-func testCompletionHandlerCallInNestedExpression(completionHandler: (Int) -> Void) {
+func testCompletionHandlerCallInNestedExpression(completionHandler: @escaping (Int) -> Void) {
   print(withoutAsyncAlternativeBecauseOfReturnValue {
     completionHandler($0)
   })
@@ -71,7 +87,7 @@ func testCompletionHandlerCallInNestedExpression(completionHandler: (Int) -> Voi
 // CONTINUATION-IN-NESTED-EXPRESSION-NEXT: }
 
 // RUN: %refactor-check-compiles -convert-to-async -dump-text -source-filename %s -pos=%(line+1):1 | %FileCheck -check-prefix=THROWING-CONTINUATION %s
-func testThrowingContinuation(completionHandler: (Int?, Error?) -> Void) {
+func testThrowingContinuation(completionHandler: @escaping (Int?, Error?) -> Void) {
   withoutAsyncAlternativeThrowing { (theValue, theError) in
     if let theError = theError {
       completionHandler(nil, theError)
@@ -91,9 +107,8 @@ func testThrowingContinuation(completionHandler: (Int?, Error?) -> Void) {
 // THROWING-CONTINUATION-NEXT:   }
 // THROWING-CONTINUATION-NEXT: }
 
-// We can't relay both the result and the error through the continuation. Converting the following results in a compiler error complaining that theError (of type Error?) can't be passed to `continuation.resume(throwing)`.
-// RUN: %refactor -convert-to-async -dump-text -source-filename %s -pos=%(line+1):1 | %FileCheck -check-prefix=THROWING-CONTINUATION-RELAYING-ERROR-AND-RESULT %s
-func testThrowingContinuationRelayingErrorAndResult(completionHandler: (Int?, Error?) -> Void) {
+// RUN: %refactor-check-compiles -convert-to-async -dump-text -source-filename %s -pos=%(line+1):1 | %FileCheck -check-prefix=THROWING-CONTINUATION-RELAYING-ERROR-AND-RESULT %s
+func testThrowingContinuationRelayingErrorAndResult(completionHandler: @escaping (Int?, Error?) -> Void) {
   withoutAsyncAlternativeThrowing { (theValue, theError) in
     completionHandler(theValue, theError)
   }
@@ -101,14 +116,120 @@ func testThrowingContinuationRelayingErrorAndResult(completionHandler: (Int?, Er
 // THROWING-CONTINUATION-RELAYING-ERROR-AND-RESULT:      func testThrowingContinuationRelayingErrorAndResult() async throws -> Int {
 // THROWING-CONTINUATION-RELAYING-ERROR-AND-RESULT-NEXT:   return try await withCheckedThrowingContinuation { continuation in 
 // THROWING-CONTINUATION-RELAYING-ERROR-AND-RESULT-NEXT:     withoutAsyncAlternativeThrowing { (theValue, theError) in
-// THROWING-CONTINUATION-RELAYING-ERROR-AND-RESULT-NEXT:       continuation.resume(throwing: theError)
+// THROWING-CONTINUATION-RELAYING-ERROR-AND-RESULT-NEXT:       if let error = theError {
+// THROWING-CONTINUATION-RELAYING-ERROR-AND-RESULT-NEXT:         continuation.resume(throwing: error)
+// THROWING-CONTINUATION-RELAYING-ERROR-AND-RESULT-NEXT:       } else {
+// THROWING-CONTINUATION-RELAYING-ERROR-AND-RESULT-NEXT:         guard let theValue1 = theValue else {
+// THROWING-CONTINUATION-RELAYING-ERROR-AND-RESULT-NEXT:           fatalError("Expected non-nil result 'theValue1' in the non-error case")
+// THROWING-CONTINUATION-RELAYING-ERROR-AND-RESULT-NEXT:         }
+// THROWING-CONTINUATION-RELAYING-ERROR-AND-RESULT-NEXT:         continuation.resume(returning: theValue1)
+// THROWING-CONTINUATION-RELAYING-ERROR-AND-RESULT-NEXT:       }
 // THROWING-CONTINUATION-RELAYING-ERROR-AND-RESULT-NEXT:     }
 // THROWING-CONTINUATION-RELAYING-ERROR-AND-RESULT-NEXT:   }
 // THROWING-CONTINUATION-RELAYING-ERROR-AND-RESULT-NEXT: }
 
+// RUN: %refactor-check-compiles -convert-to-async -dump-text -source-filename %s -pos=%(line+1):1 | %FileCheck -check-prefix=THROWING-CONTINUATION-RELAYING-ERROR-AND-COMPLEX-RESULT %s
+func testThrowingContinuationRelayingErrorAndComplexResult(completionHandler: @escaping (Int?, Error?) -> Void) {
+  withoutAsyncAlternativeThrowing { (theValue, theError) in
+    completionHandler(theValue.map({ $0 + 1 }), theError)
+  }
+}
+// THROWING-CONTINUATION-RELAYING-ERROR-AND-COMPLEX-RESULT:      func testThrowingContinuationRelayingErrorAndComplexResult() async throws -> Int {
+// THROWING-CONTINUATION-RELAYING-ERROR-AND-COMPLEX-RESULT-NEXT:   return try await withCheckedThrowingContinuation { continuation in 
+// THROWING-CONTINUATION-RELAYING-ERROR-AND-COMPLEX-RESULT-NEXT:     withoutAsyncAlternativeThrowing { (theValue, theError) in
+// THROWING-CONTINUATION-RELAYING-ERROR-AND-COMPLEX-RESULT-NEXT:       if let error = theError {
+// THROWING-CONTINUATION-RELAYING-ERROR-AND-COMPLEX-RESULT-NEXT:         continuation.resume(throwing: error)
+// THROWING-CONTINUATION-RELAYING-ERROR-AND-COMPLEX-RESULT-NEXT:       } else {
+// THROWING-CONTINUATION-RELAYING-ERROR-AND-COMPLEX-RESULT-NEXT:         guard let result = theValue.map({ $0 + 1 }) else {
+// THROWING-CONTINUATION-RELAYING-ERROR-AND-COMPLEX-RESULT-NEXT:           fatalError("Expected non-nil result in the non-error case")
+// THROWING-CONTINUATION-RELAYING-ERROR-AND-COMPLEX-RESULT-NEXT:         }
+// THROWING-CONTINUATION-RELAYING-ERROR-AND-COMPLEX-RESULT-NEXT:         continuation.resume(returning: result)
+// THROWING-CONTINUATION-RELAYING-ERROR-AND-COMPLEX-RESULT-NEXT:       }
+// THROWING-CONTINUATION-RELAYING-ERROR-AND-COMPLEX-RESULT-NEXT:     }
+// THROWING-CONTINUATION-RELAYING-ERROR-AND-COMPLEX-RESULT-NEXT:   }
+// THROWING-CONTINUATION-RELAYING-ERROR-AND-COMPLEX-RESULT-NEXT: }
+
+// RUN: %refactor-check-compiles -convert-to-async -dump-text -source-filename %s -pos=%(line+1):1 | %FileCheck -check-prefix=THROWING-CONTINUATION-RELAYING-ERROR-AND-TWO-COMPLEX-RESULTS %s
+func testThrowingContinuationRelayingErrorAndTwoComplexResults(completionHandler: @escaping (Int?, Int?, Error?) -> Void) {
+  withoutAsyncAlternativeThrowing { (theValue, theError) in
+    completionHandler(theValue.map({ $0 + 1 }), theValue.map({ $0 + 2 }), theError)
+  }
+}
+// THROWING-CONTINUATION-RELAYING-ERROR-AND-TWO-COMPLEX-RESULTS:      func testThrowingContinuationRelayingErrorAndTwoComplexResults() async throws -> (Int, Int) {
+// THROWING-CONTINUATION-RELAYING-ERROR-AND-TWO-COMPLEX-RESULTS-NEXT:   return try await withCheckedThrowingContinuation { continuation in 
+// THROWING-CONTINUATION-RELAYING-ERROR-AND-TWO-COMPLEX-RESULTS-NEXT:     withoutAsyncAlternativeThrowing { (theValue, theError) in
+// THROWING-CONTINUATION-RELAYING-ERROR-AND-TWO-COMPLEX-RESULTS-NEXT:       if let error = theError {
+// THROWING-CONTINUATION-RELAYING-ERROR-AND-TWO-COMPLEX-RESULTS-NEXT:         continuation.resume(throwing: error)
+// THROWING-CONTINUATION-RELAYING-ERROR-AND-TWO-COMPLEX-RESULTS-NEXT:       } else {
+// THROWING-CONTINUATION-RELAYING-ERROR-AND-TWO-COMPLEX-RESULTS-NEXT:         guard let result0 = theValue.map({ $0 + 1 }) else {
+// THROWING-CONTINUATION-RELAYING-ERROR-AND-TWO-COMPLEX-RESULTS-NEXT:           fatalError("Expected non-nil result 'result0' in the non-error case")
+// THROWING-CONTINUATION-RELAYING-ERROR-AND-TWO-COMPLEX-RESULTS-NEXT:         }
+// THROWING-CONTINUATION-RELAYING-ERROR-AND-TWO-COMPLEX-RESULTS-NEXT:         guard let result1 = theValue.map({ $0 + 2 }) else {
+// THROWING-CONTINUATION-RELAYING-ERROR-AND-TWO-COMPLEX-RESULTS-NEXT:           fatalError("Expected non-nil result 'result1' in the non-error case")
+// THROWING-CONTINUATION-RELAYING-ERROR-AND-TWO-COMPLEX-RESULTS-NEXT:         }
+// THROWING-CONTINUATION-RELAYING-ERROR-AND-TWO-COMPLEX-RESULTS-NEXT:         continuation.resume(returning: (result0, result1))
+// THROWING-CONTINUATION-RELAYING-ERROR-AND-TWO-COMPLEX-RESULTS-NEXT:       }
+// THROWING-CONTINUATION-RELAYING-ERROR-AND-TWO-COMPLEX-RESULTS-NEXT:     }
+// THROWING-CONTINUATION-RELAYING-ERROR-AND-TWO-COMPLEX-RESULTS-NEXT:   }
+// THROWING-CONTINUATION-RELAYING-ERROR-AND-TWO-COMPLEX-RESULTS-NEXT: }
+
+// RUN: %refactor -convert-to-async -dump-text -source-filename %s -pos=%(line+1):1 | %FileCheck -check-prefix=THROWING-CONTINUATION-RELAYING-ERROR-AND-COMPLEX-RESULT-WITH-TRAILING-CLOSURE %s
+func testThrowingContinuationRelayingErrorAndComplexResultWithTrailingClosure(completionHandler: @escaping (Int?, Error?) -> Void) {
+  withoutAsyncAlternativeThrowing { (theValue, theError) in
+    completionHandler(theValue.map { $0 + 1 }, theError)
+  }
+}
+// THROWING-CONTINUATION-RELAYING-ERROR-AND-COMPLEX-RESULT-WITH-TRAILING-CLOSURE:      func testThrowingContinuationRelayingErrorAndComplexResultWithTrailingClosure() async throws -> Int {
+// THROWING-CONTINUATION-RELAYING-ERROR-AND-COMPLEX-RESULT-WITH-TRAILING-CLOSURE-NEXT:   return try await withCheckedThrowingContinuation { continuation in 
+// THROWING-CONTINUATION-RELAYING-ERROR-AND-COMPLEX-RESULT-WITH-TRAILING-CLOSURE-NEXT:     withoutAsyncAlternativeThrowing { (theValue, theError) in
+// THROWING-CONTINUATION-RELAYING-ERROR-AND-COMPLEX-RESULT-WITH-TRAILING-CLOSURE-NEXT:       if let error = theError {
+// THROWING-CONTINUATION-RELAYING-ERROR-AND-COMPLEX-RESULT-WITH-TRAILING-CLOSURE-NEXT:         continuation.resume(throwing: error)
+// THROWING-CONTINUATION-RELAYING-ERROR-AND-COMPLEX-RESULT-WITH-TRAILING-CLOSURE-NEXT:       } else {
+// THROWING-CONTINUATION-RELAYING-ERROR-AND-COMPLEX-RESULT-WITH-TRAILING-CLOSURE-NEXT:         guard let result = theValue.map { $0 + 1 }.self else {
+// THROWING-CONTINUATION-RELAYING-ERROR-AND-COMPLEX-RESULT-WITH-TRAILING-CLOSURE-NEXT:           fatalError("Expected non-nil result in the non-error case")
+// THROWING-CONTINUATION-RELAYING-ERROR-AND-COMPLEX-RESULT-WITH-TRAILING-CLOSURE-NEXT:         }
+// THROWING-CONTINUATION-RELAYING-ERROR-AND-COMPLEX-RESULT-WITH-TRAILING-CLOSURE-NEXT:         continuation.resume(returning: result)
+// THROWING-CONTINUATION-RELAYING-ERROR-AND-COMPLEX-RESULT-WITH-TRAILING-CLOSURE-NEXT:       }
+// THROWING-CONTINUATION-RELAYING-ERROR-AND-COMPLEX-RESULT-WITH-TRAILING-CLOSURE-NEXT:     }
+// THROWING-CONTINUATION-RELAYING-ERROR-AND-COMPLEX-RESULT-WITH-TRAILING-CLOSURE-NEXT:   }
+// THROWING-CONTINUATION-RELAYING-ERROR-AND-COMPLEX-RESULT-WITH-TRAILING-CLOSURE-NEXT: }
+
+// RUN: %refactor-check-compiles -convert-to-async -dump-text -source-filename %s -pos=%(line+1):1 | %FileCheck -check-prefix=THROWING-CONTINUATION-ALWAYS-RETURNING-ERROR-AND-RESULT %s
+func testAlwaysReturnBothResultAndCompletionHandler(completionHandler: @escaping (Int?, Error?) -> Void) {
+  withoutAsyncAlternativeBecauseOfMismatchedCompletionHandlerName { theValue in
+    completionHandler(theValue, MyError())
+  }
+}
+// THROWING-CONTINUATION-ALWAYS-RETURNING-ERROR-AND-RESULT:      func testAlwaysReturnBothResultAndCompletionHandler() async throws -> Int {
+// THROWING-CONTINUATION-ALWAYS-RETURNING-ERROR-AND-RESULT-NEXT:   return try await withCheckedThrowingContinuation { continuation in 
+// THROWING-CONTINUATION-ALWAYS-RETURNING-ERROR-AND-RESULT-NEXT:     withoutAsyncAlternativeBecauseOfMismatchedCompletionHandlerName { theValue in
+// THROWING-CONTINUATION-ALWAYS-RETURNING-ERROR-AND-RESULT-NEXT:       continuation.resume(throwing: MyError())
+// THROWING-CONTINUATION-ALWAYS-RETURNING-ERROR-AND-RESULT-NEXT:     }
+// THROWING-CONTINUATION-ALWAYS-RETURNING-ERROR-AND-RESULT-NEXT:   }
+// THROWING-CONTINUATION-ALWAYS-RETURNING-ERROR-AND-RESULT-NEXT: }
+
+// RUN: %refactor-check-compiles -convert-to-async -dump-text -source-filename %s -pos=%(line+1):1 | %FileCheck -check-prefix=AMBIGUOUS-CALL-WITH-ALWAYS-NIL-VARIABLE %s
+func testAmbiguousCallToCompletionHandlerWithAlwaysNilVariable(completionHandler: @escaping (Int?, Error?) -> Void) {
+  withoutAsyncAlternativeBecauseOfMismatchedCompletionHandlerName { theValue in
+    let error: Error? = nil
+    completionHandler(theValue, error)
+  }
+}
+// AMBIGUOUS-CALL-WITH-ALWAYS-NIL-VARIABLE:      func testAmbiguousCallToCompletionHandlerWithAlwaysNilVariable() async throws -> Int {
+// AMBIGUOUS-CALL-WITH-ALWAYS-NIL-VARIABLE-NEXT:   return try await withCheckedThrowingContinuation { continuation in 
+// AMBIGUOUS-CALL-WITH-ALWAYS-NIL-VARIABLE-NEXT:     withoutAsyncAlternativeBecauseOfMismatchedCompletionHandlerName { theValue in
+// AMBIGUOUS-CALL-WITH-ALWAYS-NIL-VARIABLE-NEXT:       let error: Error? = nil
+// AMBIGUOUS-CALL-WITH-ALWAYS-NIL-VARIABLE-NEXT:       if let error = error {
+// AMBIGUOUS-CALL-WITH-ALWAYS-NIL-VARIABLE-NEXT:         continuation.resume(throwing: error)
+// AMBIGUOUS-CALL-WITH-ALWAYS-NIL-VARIABLE-NEXT:       } else {
+// AMBIGUOUS-CALL-WITH-ALWAYS-NIL-VARIABLE-NEXT:         continuation.resume(returning: theValue)
+// AMBIGUOUS-CALL-WITH-ALWAYS-NIL-VARIABLE-NEXT:       }
+// AMBIGUOUS-CALL-WITH-ALWAYS-NIL-VARIABLE-NEXT:     }
+// AMBIGUOUS-CALL-WITH-ALWAYS-NIL-VARIABLE-NEXT:   }
+// AMBIGUOUS-CALL-WITH-ALWAYS-NIL-VARIABLE-NEXT: }
 
 // RUN: %refactor-check-compiles -convert-to-async -dump-text -source-filename %s -pos=%(line+1):1 | %FileCheck -check-prefix=PREVIOUS-COMPLETION-HANDLER-CALL %s
-func testPreviousCompletionHandlerCall(completionHandler: (Int) -> Void) {
+func testPreviousCompletionHandlerCall(completionHandler: @escaping (Int) -> Void) {
   withoutAsyncAlternativeBecauseOfMismatchedCompletionHandlerName {
     print($0)
   }
@@ -128,7 +249,7 @@ func testPreviousCompletionHandlerCall(completionHandler: (Int) -> Void) {
 // PREVIOUS-COMPLETION-HANDLER-CALL-NEXT: }
 
 // RUN: %refactor-check-compiles -convert-to-async -dump-text -source-filename %s -pos=%(line+1):1 | %FileCheck -check-prefix=PREVIOUS-ASYNC-CALL %s
-func testPreviousAsyncCall(completionHandler: (Int) -> Void) {
+func testPreviousAsyncCall(completionHandler: @escaping (Int) -> Void) {
   withAsyncAlternative { message in
     print(message)
   }
@@ -147,7 +268,7 @@ func testPreviousAsyncCall(completionHandler: (Int) -> Void) {
 // PREVIOUS-ASYNC-CALL-NEXT: }
 
 // RUN: %refactor-check-compiles -convert-to-async -dump-text -source-filename %s -pos=%(line+1):1 | %FileCheck -check-prefix=IN-IF-ELSE %s
-func testInIfElse(completionHandler: (Int) -> Void) {
+func testInIfElse(completionHandler: @escaping (Int) -> Void) {
   if true {
     withoutAsyncAlternativeBecauseOfMismatchedCompletionHandlerName {
       completionHandler($0)
@@ -174,7 +295,7 @@ func testInIfElse(completionHandler: (Int) -> Void) {
 // IN-IF-ELSE-NEXT: }
 
 // RUN: %refactor-check-compiles -convert-to-async -dump-text -source-filename %s -pos=%(line+1):1 | %FileCheck -check-prefix=ASYNC-AFTER-CONTINUATION %s
-func testAsyncAfterContinuation(completionHandler: (Int) -> Void) {
+func testAsyncAfterContinuation(completionHandler: @escaping (Int) -> Void) {
   withoutAsyncAlternativeBecauseOfMismatchedCompletionHandlerName {
     completionHandler($0)
   }
@@ -194,7 +315,7 @@ func testAsyncAfterContinuation(completionHandler: (Int) -> Void) {
 // ASYNC-AFTER-CONTINUATION-NEXT: }
 
 // RUN: %refactor-check-compiles -convert-to-async -dump-text -source-filename %s -pos=%(line+1):1 | %FileCheck -check-prefix=WITHOUT-ASYNC-NESTED-IN-WITHOUT-ASYNC %s
-func testWithoutAsyncAlternativeNestedInWithoutAsyncAlternative(completionHandler: (Int) -> Void) {
+func testWithoutAsyncAlternativeNestedInWithoutAsyncAlternative(completionHandler: @escaping (Int) -> Void) {
   withoutAsyncAlternativeBecauseOfMismatchedCompletionHandlerName { firstResult in
     withoutAsyncAlternativeBecauseOfMismatchedCompletionHandlerName { secondResult in
       completionHandler(firstResult + secondResult)
@@ -213,7 +334,7 @@ func testWithoutAsyncAlternativeNestedInWithoutAsyncAlternative(completionHandle
 
 
 // RUN: %refactor-check-compiles -convert-to-async -dump-text -source-filename %s -pos=%(line+1):1 | %FileCheck -check-prefix=WITHOUT-ASYNC-NESTED-IN-ASYNC %s
-func testWithoutAsyncAlternativeNestedInAsyncAlternative(completionHandler: (Int) -> Void) {
+func testWithoutAsyncAlternativeNestedInAsyncAlternative(completionHandler: @escaping (Int) -> Void) {
   withAsyncAlternative { firstResult in
     withoutAsyncAlternativeBecauseOfMismatchedCompletionHandlerName { secondResult in
       completionHandler(firstResult + secondResult)
@@ -230,7 +351,7 @@ func testWithoutAsyncAlternativeNestedInAsyncAlternative(completionHandler: (Int
 // WITHOUT-ASYNC-NESTED-IN-ASYNC-NEXT: }
 
 // RUN: %refactor-check-compiles -convert-to-async -dump-text -source-filename %s -pos=%(line+1):1 | %FileCheck -check-prefix=ASYNC-NESTED-IN-WITHOUT-ASYNC %s
-func testAsyncAlternativeNestedInWithoutAsyncAlternative(completionHandler: (Int) -> Void) {
+func testAsyncAlternativeNestedInWithoutAsyncAlternative(completionHandler: @escaping (Int) -> Void) {
   withoutAsyncAlternativeBecauseOfMismatchedCompletionHandlerName { firstResult in
     withAsyncAlternative { secondResult in
       completionHandler(firstResult + secondResult)
@@ -248,7 +369,7 @@ func testAsyncAlternativeNestedInWithoutAsyncAlternative(completionHandler: (Int
 // ASYNC-NESTED-IN-WITHOUT-ASYNC-NEXT: }
 
 // RUN: %refactor-check-compiles -convert-to-async -dump-text -source-filename %s -pos=%(line+1):1 | %FileCheck -check-prefix=SHADOW-CONT-NAME %s
-func testShadowContName(completionHandler: (Int) -> Void) {
+func testShadowContName(completionHandler: @escaping (Int) -> Void) {
   withoutAsyncAlternativeBecauseOfMismatchedCompletionHandlerName { continuation in
     completionHandler(continuation)
   }
@@ -262,7 +383,7 @@ func testShadowContName(completionHandler: (Int) -> Void) {
 // SHADOW-CONT-NAME-NEXT: }
 
 // RUN: %refactor-check-compiles -convert-to-async -dump-text -source-filename %s -pos=%(line+1):1 | %FileCheck -check-prefix=SHADOW-CONT-NAME-2 %s
-func testShadowContName2(completionHandler: (Int) -> Void) {
+func testShadowContName2(completionHandler: @escaping (Int) -> Void) {
   let continuation = 3
   withoutAsyncAlternativeBecauseOfMismatchedCompletionHandlerName { result in
     completionHandler(result + continuation)
@@ -278,7 +399,7 @@ func testShadowContName2(completionHandler: (Int) -> Void) {
 // SHADOW-CONT-NAME-2-NEXT: }
 
 // RUN: %refactor-check-compiles -convert-to-async -dump-text -source-filename %s -pos=%(line+1):1 | %FileCheck -check-prefix=VOID-RETURN %s
-func testVoidReturnValue(completionHandler: () -> Void) {
+func testVoidReturnValue(completionHandler: @escaping () -> Void) {
   asyncVoidWithoutAlternative {
     completionHandler()
   }
@@ -292,7 +413,7 @@ func testVoidReturnValue(completionHandler: () -> Void) {
 // VOID-RETURN-NEXT: }
 
 // RUN: %refactor-check-compiles -convert-to-async -dump-text -source-filename %s -pos=%(line+1):1 | %FileCheck -check-prefix=SIMPLE-RESULT %s
-func testSimpleResult(completionHandler: (Result<Int, Error>) -> Void) {
+func testSimpleResult(completionHandler: @escaping (Result<Int, Error>) -> Void) {
   resultWithoutAlternative { result in
     completionHandler(result)
   }
@@ -306,7 +427,7 @@ func testSimpleResult(completionHandler: (Result<Int, Error>) -> Void) {
 // SIMPLE-RESULT-NEXT: }
 
 // RUN: %refactor-check-compiles -convert-to-async -dump-text -source-filename %s -pos=%(line+1):1 | %FileCheck -check-prefix=RESULT-FROM-VALUE-AND-ERROR %s
-func testResultFromValueAndError(completionHandler: (Result<Int, Error>) -> Void) {
+func testResultFromValueAndError(completionHandler: @escaping (Result<Int, Error>) -> Void) {
   withoutAsyncAlternativeThrowing { (value, error) in
     if let error = error {
       completionHandler(.failure(error))
@@ -327,6 +448,154 @@ func testResultFromValueAndError(completionHandler: (Result<Int, Error>) -> Void
 // RESULT-FROM-VALUE-AND-ERROR-NEXT:   }
 // RESULT-FROM-VALUE-AND-ERROR-NEXT: }
 
+// RUN: %refactor-check-compiles -convert-to-async -dump-text -source-filename %s -pos=%(line+1):1 | %FileCheck -check-prefix=MULTIPLE-RETURN-VALUES-AND-ERROR %s
+func testMultipleReturnValuesAndError(completion: @escaping (Int?, String?, Error?) -> Void) {
+  withoutAsyncAlternativeThrowingWithMultipleResults { (first, second, error) in 
+    completion(first, second, error)
+  }
+}
+// MULTIPLE-RETURN-VALUES-AND-ERROR:      func testMultipleReturnValuesAndError() async throws -> (Int, String) {
+// MULTIPLE-RETURN-VALUES-AND-ERROR-NEXT:   return try await withCheckedThrowingContinuation { continuation in 
+// MULTIPLE-RETURN-VALUES-AND-ERROR-NEXT:     withoutAsyncAlternativeThrowingWithMultipleResults { (first, second, error) in 
+// MULTIPLE-RETURN-VALUES-AND-ERROR-NEXT:       if let error = error {
+// MULTIPLE-RETURN-VALUES-AND-ERROR-NEXT:         continuation.resume(throwing: error)
+// MULTIPLE-RETURN-VALUES-AND-ERROR-NEXT:       } else {
+// MULTIPLE-RETURN-VALUES-AND-ERROR-NEXT:         guard let first1 = first else {
+// MULTIPLE-RETURN-VALUES-AND-ERROR-NEXT:           fatalError("Expected non-nil result 'first1' in the non-error case")
+// MULTIPLE-RETURN-VALUES-AND-ERROR-NEXT:         }
+// MULTIPLE-RETURN-VALUES-AND-ERROR-NEXT:         guard let second1 = second else {
+// MULTIPLE-RETURN-VALUES-AND-ERROR-NEXT:           fatalError("Expected non-nil result 'second1' in the non-error case")
+// MULTIPLE-RETURN-VALUES-AND-ERROR-NEXT:         }
+// MULTIPLE-RETURN-VALUES-AND-ERROR-NEXT:         continuation.resume(returning: (first1, second1))
+// MULTIPLE-RETURN-VALUES-AND-ERROR-NEXT:       }
+// MULTIPLE-RETURN-VALUES-AND-ERROR-NEXT:     }
+// MULTIPLE-RETURN-VALUES-AND-ERROR-NEXT:   }
+// MULTIPLE-RETURN-VALUES-AND-ERROR-NEXT: }
+
+// RUN: %refactor-check-compiles -convert-to-async -dump-text -source-filename %s -pos=%(line+1):1 | %FileCheck -check-prefix=NON-OPTIONAL-VALUE-FOR-RESULT-AND-ERROR %s
+func testReturnNonOptionalValuesForResultAndError(completion: @escaping (Int?, Error?) -> Void) {
+  withoutAsyncAlternativeBecauseOfMismatchedCompletionHandlerName { result in
+    completion(1, MyError())
+  }
+}
+// NON-OPTIONAL-VALUE-FOR-RESULT-AND-ERROR:      func testReturnNonOptionalValuesForResultAndError() async throws -> Int {
+// NON-OPTIONAL-VALUE-FOR-RESULT-AND-ERROR-NEXT:   return try await withCheckedThrowingContinuation { continuation in 
+// NON-OPTIONAL-VALUE-FOR-RESULT-AND-ERROR-NEXT:     withoutAsyncAlternativeBecauseOfMismatchedCompletionHandlerName { result in
+// NON-OPTIONAL-VALUE-FOR-RESULT-AND-ERROR-NEXT:       continuation.resume(throwing: MyError())
+// NON-OPTIONAL-VALUE-FOR-RESULT-AND-ERROR-NEXT:     }
+// NON-OPTIONAL-VALUE-FOR-RESULT-AND-ERROR-NEXT:   }
+// NON-OPTIONAL-VALUE-FOR-RESULT-AND-ERROR-NEXT: }
+
+// RUN: %refactor-check-compiles -convert-to-async -dump-text -source-filename %s -pos=%(line+1):1 | %FileCheck -check-prefix=MIXED-OPTIONAL-AND-NON-OPTIONAL-RESULT %s
+func testMixedOptionalAnNonOptionaResults(completion: @escaping (Int?, String?, Error?) -> Void) {
+  withoutAsyncAlternativeThrowing { (theResult, error) in
+    completion(theResult, "hi", nil)
+  }
+}
+// MIXED-OPTIONAL-AND-NON-OPTIONAL-RESULT:      func testMixedOptionalAnNonOptionaResults() async throws -> (Int, String) {
+// MIXED-OPTIONAL-AND-NON-OPTIONAL-RESULT-NEXT:   return try await withCheckedThrowingContinuation { continuation in 
+// MIXED-OPTIONAL-AND-NON-OPTIONAL-RESULT-NEXT:     withoutAsyncAlternativeThrowing { (theResult, error) in
+// MIXED-OPTIONAL-AND-NON-OPTIONAL-RESULT-NEXT:       guard let theResult1 = theResult else {
+// MIXED-OPTIONAL-AND-NON-OPTIONAL-RESULT-NEXT:         fatalError("Expected non-nil result 'theResult1' in the non-error case")
+// MIXED-OPTIONAL-AND-NON-OPTIONAL-RESULT-NEXT:       }
+// MIXED-OPTIONAL-AND-NON-OPTIONAL-RESULT-NEXT:       continuation.resume(returning: (theResult1, "hi"))
+// MIXED-OPTIONAL-AND-NON-OPTIONAL-RESULT-NEXT:     }
+// MIXED-OPTIONAL-AND-NON-OPTIONAL-RESULT-NEXT:   }
+// MIXED-OPTIONAL-AND-NON-OPTIONAL-RESULT-NEXT: }
+
+// RUN: %refactor-check-compiles -convert-to-async -dump-text -source-filename %s -pos=%(line+1):1 | %FileCheck -check-prefix=USE-OPTIONAL-RESULT-AFTER-COMPLETION-HANDLER-CALL %s
+func testUseOptionalResultValueAfterCompletionHandlerCall(completion: @escaping (Int?, String?, Error?) -> Void) {
+  withoutAsyncAlternativeThrowing { (theResult, error) in
+    completion(theResult, "hi", nil)
+    print(theResult.map { $0 + 1 } as Any)
+  }
+}
+// USE-OPTIONAL-RESULT-AFTER-COMPLETION-HANDLER-CALL:      func testUseOptionalResultValueAfterCompletionHandlerCall() async throws -> (Int, String) {
+// USE-OPTIONAL-RESULT-AFTER-COMPLETION-HANDLER-CALL-NEXT:   return try await withCheckedThrowingContinuation { continuation in 
+// USE-OPTIONAL-RESULT-AFTER-COMPLETION-HANDLER-CALL-NEXT:     withoutAsyncAlternativeThrowing { (theResult, error) in
+// USE-OPTIONAL-RESULT-AFTER-COMPLETION-HANDLER-CALL-NEXT:       guard let theResult1 = theResult else {
+// USE-OPTIONAL-RESULT-AFTER-COMPLETION-HANDLER-CALL-NEXT:         fatalError("Expected non-nil result 'theResult1' in the non-error case")
+// USE-OPTIONAL-RESULT-AFTER-COMPLETION-HANDLER-CALL-NEXT:       }
+// USE-OPTIONAL-RESULT-AFTER-COMPLETION-HANDLER-CALL-NEXT:       continuation.resume(returning: (theResult1, "hi"))
+// USE-OPTIONAL-RESULT-AFTER-COMPLETION-HANDLER-CALL-NEXT:       print(theResult.map { $0 + 1 } as Any)
+// USE-OPTIONAL-RESULT-AFTER-COMPLETION-HANDLER-CALL-NEXT:     }
+// USE-OPTIONAL-RESULT-AFTER-COMPLETION-HANDLER-CALL-NEXT:   }
+// USE-OPTIONAL-RESULT-AFTER-COMPLETION-HANDLER-CALL-NEXT: }
+
+// We shouldn't need to unwrap `theResult` twice here, but the example is silly and I don't care too much.
+// RUN: %refactor-check-compiles -convert-to-async -dump-text -source-filename %s -pos=%(line+1):1 | %FileCheck -check-prefix=PASS-SAME-RESULT-TWICE %s
+func testPassSameResultTwice(completion: @escaping (Int?, Int?, Error?) -> Void) {
+  withoutAsyncAlternativeThrowing { (theResult, error) in
+    completion(theResult, theResult, nil)
+  }
+}
+// PASS-SAME-RESULT-TWICE:      func testPassSameResultTwice() async throws -> (Int, Int) {
+// PASS-SAME-RESULT-TWICE-NEXT:   return try await withCheckedThrowingContinuation { continuation in 
+// PASS-SAME-RESULT-TWICE-NEXT:     withoutAsyncAlternativeThrowing { (theResult, error) in
+// PASS-SAME-RESULT-TWICE-NEXT:       guard let theResult1 = theResult else {
+// PASS-SAME-RESULT-TWICE-NEXT:         fatalError("Expected non-nil result 'theResult1' in the non-error case")
+// PASS-SAME-RESULT-TWICE-NEXT:       }
+// PASS-SAME-RESULT-TWICE-NEXT:       guard let theResult2 = theResult else {
+// PASS-SAME-RESULT-TWICE-NEXT:         fatalError("Expected non-nil result 'theResult2' in the non-error case")
+// PASS-SAME-RESULT-TWICE-NEXT:       }
+// PASS-SAME-RESULT-TWICE-NEXT:       continuation.resume(returning: (theResult1, theResult2))
+// PASS-SAME-RESULT-TWICE-NEXT:     }
+// PASS-SAME-RESULT-TWICE-NEXT:   }
+// PASS-SAME-RESULT-TWICE-NEXT: }
+
+
+// RUN: %refactor-check-compiles -convert-to-async -dump-text -source-filename %s -pos=%(line+1):1 | %FileCheck -check-prefix=USE-RESULT-AFTER-AMBIGUOUS-HANLDER-CALL %s
+func testUseResultAfterAmbiguousCompletionHandlerCall(completion: @escaping (Int?, Error?) -> Void) {
+  withoutAsyncAlternativeThrowing { (theResult, error) in
+    completion(theResult, error)
+    print(theResult as Any)
+  }
+}
+// USE-RESULT-AFTER-AMBIGUOUS-HANLDER-CALL:      func testUseResultAfterAmbiguousCompletionHandlerCall() async throws -> Int {
+// USE-RESULT-AFTER-AMBIGUOUS-HANLDER-CALL-NEXT:   return try await withCheckedThrowingContinuation { continuation in 
+// USE-RESULT-AFTER-AMBIGUOUS-HANLDER-CALL-NEXT:     withoutAsyncAlternativeThrowing { (theResult, error) in
+// USE-RESULT-AFTER-AMBIGUOUS-HANLDER-CALL-NEXT:       if let error = error {
+// USE-RESULT-AFTER-AMBIGUOUS-HANLDER-CALL-NEXT:         continuation.resume(throwing: error)
+// USE-RESULT-AFTER-AMBIGUOUS-HANLDER-CALL-NEXT:       } else {
+// USE-RESULT-AFTER-AMBIGUOUS-HANLDER-CALL-NEXT:         guard let theResult1 = theResult else {
+// USE-RESULT-AFTER-AMBIGUOUS-HANLDER-CALL-NEXT:           fatalError("Expected non-nil result 'theResult1' in the non-error case")
+// USE-RESULT-AFTER-AMBIGUOUS-HANLDER-CALL-NEXT:         }
+// USE-RESULT-AFTER-AMBIGUOUS-HANLDER-CALL-NEXT:         continuation.resume(returning: theResult1)
+// USE-RESULT-AFTER-AMBIGUOUS-HANLDER-CALL-NEXT:       }
+// USE-RESULT-AFTER-AMBIGUOUS-HANLDER-CALL-NEXT:       print(theResult as Any)
+// USE-RESULT-AFTER-AMBIGUOUS-HANLDER-CALL-NEXT:     }
+// USE-RESULT-AFTER-AMBIGUOUS-HANLDER-CALL-NEXT:   }
+// USE-RESULT-AFTER-AMBIGUOUS-HANLDER-CALL-NEXT: }
+
+// RUN: %refactor-check-compiles -convert-to-async -dump-text -source-filename %s -pos=%(line+1):1 | %FileCheck -check-prefix=TWO-COMPLEITON-HANDLER-CALLS %s
+func testTwoCompletionHandlerCalls(completion: @escaping (Int?, Error?) -> Void) {
+  withoutAsyncAlternativeThrowing { (theResult, error) in
+    completion(theResult, error)
+    completion(theResult, error)
+  }
+}
+// TWO-COMPLEITON-HANDLER-CALLS:      func testTwoCompletionHandlerCalls() async throws -> Int {
+// TWO-COMPLEITON-HANDLER-CALLS-NEXT:   return try await withCheckedThrowingContinuation { continuation in 
+// TWO-COMPLEITON-HANDLER-CALLS-NEXT:     withoutAsyncAlternativeThrowing { (theResult, error) in
+// TWO-COMPLEITON-HANDLER-CALLS-NEXT:       if let error = error {
+// TWO-COMPLEITON-HANDLER-CALLS-NEXT:         continuation.resume(throwing: error)
+// TWO-COMPLEITON-HANDLER-CALLS-NEXT:       } else {
+// TWO-COMPLEITON-HANDLER-CALLS-NEXT:         guard let theResult1 = theResult else {
+// TWO-COMPLEITON-HANDLER-CALLS-NEXT:           fatalError("Expected non-nil result 'theResult1' in the non-error case")
+// TWO-COMPLEITON-HANDLER-CALLS-NEXT:         }
+// TWO-COMPLEITON-HANDLER-CALLS-NEXT:         continuation.resume(returning: theResult1)
+// TWO-COMPLEITON-HANDLER-CALLS-NEXT:       }
+// TWO-COMPLEITON-HANDLER-CALLS-NEXT:       if let error = error {
+// TWO-COMPLEITON-HANDLER-CALLS-NEXT:         continuation.resume(throwing: error)
+// TWO-COMPLEITON-HANDLER-CALLS-NEXT:       } else {
+// TWO-COMPLEITON-HANDLER-CALLS-NEXT:         guard let theResult2 = theResult else {
+// TWO-COMPLEITON-HANDLER-CALLS-NEXT:           fatalError("Expected non-nil result 'theResult2' in the non-error case")
+// TWO-COMPLEITON-HANDLER-CALLS-NEXT:         }
+// TWO-COMPLEITON-HANDLER-CALLS-NEXT:         continuation.resume(returning: theResult2)
+// TWO-COMPLEITON-HANDLER-CALLS-NEXT:       }
+// TWO-COMPLEITON-HANDLER-CALLS-NEXT:     }
+// TWO-COMPLEITON-HANDLER-CALLS-NEXT:   }
+// TWO-COMPLEITON-HANDLER-CALLS-NEXT: }
 
 
 // Reduced version of https://twitter.com/peterfriese/status/1397835146133479428
@@ -369,7 +638,7 @@ func testDataTask(_ completion: @escaping (Int?) -> Void) {
   }
   dataTask.resume()
 }
-// URL-SESSION:      func testDataTask() async -> Int?
+// URL-SESSION:      func testDataTask() async -> Int? {
 // URL-SESSION-NEXT:   return await withCheckedContinuation { continuation in
 // URL-SESSION-NEXT:     let dataTask1 = URLSession.shared.dataTask { (data, error) in
 // URL-SESSION-NEXT:       guard let data1 = data else {

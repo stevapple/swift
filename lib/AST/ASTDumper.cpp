@@ -499,11 +499,12 @@ namespace {
         PrintWithColorRAII(OS, DeclModifierColor) << " trailing_semi";
     }
 
-    void printInherited(ArrayRef<TypeLoc> Inherited) {
+    void printInherited(ArrayRef<InheritedEntry> Inherited) {
       if (Inherited.empty())
         return;
       OS << " inherits: ";
-      interleave(Inherited, [&](TypeLoc Super) { Super.getType().print(OS); },
+      interleave(Inherited,
+                 [&](InheritedEntry Super) { Super.getType().print(OS); },
                  [&] { OS << ", "; });
     }
 
@@ -852,6 +853,10 @@ namespace {
       if (!D->getCaptureInfo().isTrivial()) {
         OS << " ";
         D->getCaptureInfo().print(OS);
+      }
+
+      if (D->isDistributed()) {
+        OS << " distributed";
       }
 
       if (auto fac = D->getForeignAsyncConvention()) {
@@ -1315,9 +1320,11 @@ std::string ValueDecl::printRef() const {
 }
 
 void ValueDecl::dumpRef(raw_ostream &os) const {
-  // Print the context.
-  printContext(os, getDeclContext());
-  os << ".";
+  if (!isa<ModuleDecl>(this)) {
+    // Print the context.
+    printContext(os, getDeclContext());
+    os << ".";
+  }
 
   // Print name.
   getName().printPretty(os);
@@ -3279,7 +3286,7 @@ static void dumpSubstitutionMapRec(
   }
 
   genericSig->print(out);
-  auto genericParams = genericSig->getGenericParams();
+  auto genericParams = genericSig.getGenericParams();
   auto replacementTypes =
       static_cast<const SubstitutionMap &>(map).getReplacementTypesBuffer();
   for (unsigned i : indices(genericParams)) {
@@ -3308,7 +3315,7 @@ static void dumpSubstitutionMapRec(
     return;
 
   auto conformances = map.getConformances();
-  for (const auto &req : genericSig->getRequirements()) {
+  for (const auto &req : genericSig.getRequirements()) {
     if (req.getKind() != RequirementKind::Conformance)
       continue;
 

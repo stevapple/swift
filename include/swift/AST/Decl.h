@@ -1209,6 +1209,17 @@ public:
   }
 };
 
+/// An entry in the "inherited" list of a type or extension.
+struct InheritedEntry : public TypeLoc {
+  /// Whether there was an @unchecked attribute.
+  bool isUnchecked = false;
+
+  InheritedEntry(const TypeLoc &typeLoc);
+
+  InheritedEntry(const TypeLoc &typeLoc, bool isUnchecked)
+    : TypeLoc(typeLoc), isUnchecked(isUnchecked) { }
+};
+
 /// ExtensionDecl - This represents a type extension containing methods
 /// associated with the type.  This is not a ValueDecl and has no Type because
 /// there are no runtime values of the Extension's type.  
@@ -1227,7 +1238,7 @@ class ExtensionDecl final : public GenericContext, public Decl,
   /// extended nominal.
   llvm::PointerIntPair<NominalTypeDecl *, 1, bool> ExtendedNominal;
 
-  ArrayRef<TypeLoc> Inherited;
+  ArrayRef<InheritedEntry> Inherited;
 
   /// The next extension in the linked list of extensions.
   ///
@@ -1246,7 +1257,7 @@ class ExtensionDecl final : public GenericContext, public Decl,
   friend class IterableDeclContext;
 
   ExtensionDecl(SourceLoc extensionLoc, TypeRepr *extendedType,
-                ArrayRef<TypeLoc> inherited,
+                ArrayRef<InheritedEntry> inherited,
                 DeclContext *parent,
                 TrailingWhereClause *trailingWhereClause);
 
@@ -1271,7 +1282,7 @@ public:
   /// Create a new extension declaration.
   static ExtensionDecl *create(ASTContext &ctx, SourceLoc extensionLoc,
                                TypeRepr *extendedType,
-                               ArrayRef<TypeLoc> inherited,
+                               ArrayRef<InheritedEntry> inherited,
                                DeclContext *parent,
                                TrailingWhereClause *trailingWhereClause,
                                ClangNode clangNode = ClangNode());
@@ -1326,9 +1337,9 @@ public:
                               
   /// Retrieve the set of protocols that this type inherits (i.e,
   /// explicitly conforms to).
-  ArrayRef<TypeLoc> getInherited() const { return Inherited; }
+  ArrayRef<InheritedEntry> getInherited() const { return Inherited; }
 
-  void setInherited(ArrayRef<TypeLoc> i) { Inherited = i; }
+  void setInherited(ArrayRef<InheritedEntry> i) { Inherited = i; }
 
   bool hasDefaultAccessLevel() const {
     return Bits.ExtensionDecl.DefaultAndMaxAccessLevel != 0;
@@ -2538,12 +2549,12 @@ public:
 
 /// This is a common base class for declarations which declare a type.
 class TypeDecl : public ValueDecl {
-  ArrayRef<TypeLoc> Inherited;
+  ArrayRef<InheritedEntry> Inherited;
 
 protected:
   TypeDecl(DeclKind K, llvm::PointerUnion<DeclContext *, ASTContext *> context,
            Identifier name, SourceLoc NameLoc,
-           ArrayRef<TypeLoc> inherited) :
+           ArrayRef<InheritedEntry> inherited) :
     ValueDecl(K, context, name, NameLoc), Inherited(inherited) {}
 
 public:
@@ -2561,9 +2572,9 @@ public:
 
   /// Retrieve the set of protocols that this type inherits (i.e,
   /// explicitly conforms to).
-  ArrayRef<TypeLoc> getInherited() const { return Inherited; }
+  ArrayRef<InheritedEntry> getInherited() const { return Inherited; }
 
-  void setInherited(ArrayRef<TypeLoc> i) { Inherited = i; }
+  void setInherited(ArrayRef<InheritedEntry> i) { Inherited = i; }
 
   static bool classof(const Decl *D) {
     return D->getKind() >= DeclKind::First_TypeDecl &&
@@ -2588,7 +2599,7 @@ class GenericTypeDecl : public GenericContext, public TypeDecl {
 public:
   GenericTypeDecl(DeclKind K, DeclContext *DC,
                   Identifier name, SourceLoc nameLoc,
-                  ArrayRef<TypeLoc> inherited,
+                  ArrayRef<InheritedEntry> inherited,
                   GenericParamList *GenericParams);
 
   // Resolve ambiguity due to multiple base classes.
@@ -3115,7 +3126,7 @@ protected:
 
   NominalTypeDecl(DeclKind K, DeclContext *DC, Identifier name,
                   SourceLoc NameLoc,
-                  ArrayRef<TypeLoc> inherited,
+                  ArrayRef<InheritedEntry> inherited,
                   GenericParamList *GenericParams) :
     GenericTypeDecl(K, DC, name, NameLoc, inherited, GenericParams),
     IterableDeclContext(IterableDeclContextKind::NominalTypeDecl)
@@ -3185,12 +3196,6 @@ public:
     /// Whether to include @_implements members.
     /// Used by conformance-checking to find special @_implements members.
     IncludeAttrImplements = 1 << 0,
-    /// Whether to avoid loading lazy members from any new extensions that would otherwise be found
-    /// by deserialization.
-    ///
-    /// Used by the module loader to break recursion and as an optimization e.g. when it is known that a
-    /// particular member declaration will never appear in an extension.
-    IgnoreNewExtensions = 1 << 1,
   };
 
   /// Find all of the declarations with the given name within this nominal type
@@ -3269,6 +3274,9 @@ public:
   /// it is either a distributed actor.
   bool isDistributedActor() const;
 
+  /// Whether this nominal type qualifies as any actor (plain or distributed).
+  bool isAnyActor() const;
+
   /// Return the range of semantics attributes attached to this NominalTypeDecl.
   auto getSemanticsAttrs() const
       -> decltype(getAttrs().getSemanticsAttrs()) {
@@ -3277,6 +3285,12 @@ public:
 
   bool hasSemanticsAttr(StringRef attrValue) const {
     return getAttrs().hasSemanticsAttr(attrValue);
+  }
+
+  /// Returns true if we should emit assembly vision remarks on all methods of
+  /// this nominal type.
+  bool shouldEmitAssemblyVisionRemarksOnMethods() const {
+    return getAttrs().hasAttribute<EmitAssemblyVisionRemarksAttr>();
   }
 
   /// Whether this declaration has a synthesized memberwise initializer.
@@ -3405,7 +3419,7 @@ class EnumDecl final : public NominalTypeDecl {
 
 public:
   EnumDecl(SourceLoc EnumLoc, Identifier Name, SourceLoc NameLoc,
-            ArrayRef<TypeLoc> Inherited,
+            ArrayRef<InheritedEntry> Inherited,
             GenericParamList *GenericParams, DeclContext *DC);
 
   SourceLoc getStartLoc() const { return EnumLoc; }
@@ -3573,7 +3587,7 @@ class StructDecl final : public NominalTypeDecl {
 
 public:
   StructDecl(SourceLoc StructLoc, Identifier Name, SourceLoc NameLoc,
-             ArrayRef<TypeLoc> Inherited,
+             ArrayRef<InheritedEntry> Inherited,
              GenericParamList *GenericParams, DeclContext *DC);
 
   SourceLoc getStartLoc() const { return StructLoc; }
@@ -3719,7 +3733,7 @@ class ClassDecl final : public NominalTypeDecl {
 
 public:
   ClassDecl(SourceLoc ClassLoc, Identifier Name, SourceLoc NameLoc,
-            ArrayRef<TypeLoc> Inherited,
+            ArrayRef<InheritedEntry> Inherited,
             GenericParamList *GenericParams, DeclContext *DC,
             bool isActor);
 
@@ -3959,7 +3973,7 @@ public:
   /// Returns true if the decl uses the Objective-C generics model.
   ///
   /// This is true of imported Objective-C classes.
-  bool usesObjCGenericsModel() const {
+  bool isTypeErasedGenericClass() const {
     return hasClangNode() && isGenericContext() && isObjC();
   }
   
@@ -4154,7 +4168,7 @@ class ProtocolDecl final : public NominalTypeDecl {
   
 public:
   ProtocolDecl(DeclContext *DC, SourceLoc ProtocolLoc, SourceLoc NameLoc,
-               Identifier Name, ArrayRef<TypeLoc> Inherited,
+               Identifier Name, ArrayRef<InheritedEntry> Inherited,
                TrailingWhereClause *TrailingWhere);
 
   using Decl::getASTContext;
@@ -5241,12 +5255,6 @@ public:
       return attrValue.equals(attr->Value);
     });
   }
-
-  /// Whether the given name is actorAddress, which is used for distributed actors.
-  static bool isDistributedActorAddressName(ASTContext &ctx, DeclName name);
-
-  /// Whether the given name is actorTransport, which is used for distributed actors.
-  static bool isDistributedActorTransportName(ASTContext &ctx, DeclName name);
 
   // Implement isa/cast/dyncast/etc.
   static bool classof(const Decl *D) { 

@@ -1,4 +1,4 @@
-// RUN: %target-typecheck-verify-swift -enable-requirement-machine -debug-requirement-machine 2>&1 | %FileCheck %s
+// RUN: %target-typecheck-verify-swift -requirement-machine=verify -debug-requirement-machine 2>&1 | %FileCheck %s
 
 struct Foo<A, B> {}
 
@@ -28,7 +28,7 @@ struct MergeTest<G : P1a & P2a> {}
 // CHECK: - [P1a&P2a:T].[P2:X] => [P1a&P2a:T].[P1&P2:X]
 // CHECK: - [P1a&P2a:T].[P1:X] => [P1a&P2a:T].[P1&P2:X]
 // CHECK: }
-// CHECK: Equivalence class map: {
+// CHECK: Property map: {
 // CHECK:   [P1a&P2a:T] => { conforms_to: [P1 P2] }
 // CHECK:   [P1a:T] => { conforms_to: [P1] }
 // CHECK:   [P2a:T] => { conforms_to: [P2] }

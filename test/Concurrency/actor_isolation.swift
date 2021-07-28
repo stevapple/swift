@@ -1,6 +1,6 @@
 // RUN: %empty-directory(%t)
-// RUN: %target-swift-frontend -emit-module -emit-module-path %t/OtherActors.swiftmodule -module-name OtherActors %S/Inputs/OtherActors.swift
-// RUN: %target-typecheck-verify-swift -I %t -enable-experimental-concurrency -warn-concurrency
+// RUN: %target-swift-frontend -emit-module -emit-module-path %t/OtherActors.swiftmodule -module-name OtherActors %S/Inputs/OtherActors.swift -disable-availability-checking
+// RUN: %target-typecheck-verify-swift -I %t  -disable-availability-checking -warn-concurrency
 // REQUIRES: concurrency
 
 import OtherActors
@@ -71,7 +71,7 @@ actor MyActor: MySuperActor { // expected-error{{actor types do not support inhe
     return self.name // expected-error{{property 'name' isolated to global actor 'MainActor' can not be referenced from actor 'MyActor' in a synchronous context}}
   }
 
-  class func synchronousClass() { }
+  static func synchronousClass() { }
   static func synchronousStatic() { }
 
   func synchronous() -> String { text.first ?? "nothing" } // expected-note 9{{calls to instance method 'synchronous()' from outside of its actor context are implicitly asynchronous}}
@@ -854,6 +854,29 @@ actor MyActorP: P {
 }
 
 @available(SwiftStdlib 5.5, *)
+protocol SP {
+  static func s()
+}
+
+@available(SwiftStdlib 5.5, *)
+actor ASP: SP {
+  static func s() { }
+}
+
+@available(SwiftStdlib 5.5, *)
+protocol SPD {
+  static func sd()
+}
+@available(SwiftStdlib 5.5, *)
+extension SPD {
+  static func sd() { }
+}
+
+@available(SwiftStdlib 5.5, *)
+actor ASPD: SPD {
+}
+
+@available(SwiftStdlib 5.5, *)
 func testCrossActorProtocol<T: P>(t: T) async {
   await t.f()
   await t.g()
@@ -863,6 +886,8 @@ func testCrossActorProtocol<T: P>(t: T) async {
   t.g()
   // expected-error@-1{{expression is 'async' but is not marked with 'await'}}{{3-3=await }}
   // expected-note@-2{{calls to instance method 'g()' from outside of its actor context are implicitly asynchronous}}
+  ASP.s()
+  ASPD.sd()
 }
 
 // ----------------------------------------------------------------------

@@ -1363,7 +1363,7 @@ RValue SILGenFunction::emitCollectionConversion(SILLocation loc,
   // Form type parameter substitutions.
   auto genericSig = fn->getGenericSignature();
   unsigned fromParamCount = fromDecl->getGenericSignature()
-    ->getGenericParams().size();
+    .getGenericParams().size();
 
   auto subMap =
     SubstitutionMap::combineSubstitutionMaps(fromSubMap,
@@ -5251,9 +5251,15 @@ RValue RValueEmitter::visitAppliedPropertyWrapperExpr(
     break;
   }
 
+  // The property wrapper generator function needs the same substitutions as the
+  // enclosing function or closure. If the parameter is declared in a function, take
+  // the substitutions from the concrete callee. Otherwise, forward the archetypes
+  // from the closure.
   SubstitutionMap subs;
   if (param->getDeclContext()->getAsDecl()) {
     subs = E->getCallee().getSubstitutions();
+  } else {
+    subs = SGF.getForwardingSubstitutionMap();
   }
 
   return SGF.emitApplyOfPropertyWrapperBackingInitializer(

@@ -889,6 +889,9 @@ AvailabilityContext Decl::getAvailabilityForLinkage() const {
   if (auto *accessor = dyn_cast<AccessorDecl>(this))
     return accessor->getStorage()->getAvailabilityForLinkage();
 
+  if (auto *opaqueTypeDecl = dyn_cast<OpaqueTypeDecl>(this))
+    return opaqueTypeDecl->getNamingDecl()->getAvailabilityForLinkage();
+
   if (auto *ext = dyn_cast<ExtensionDecl>(this))
     if (auto *nominal = ext->getExtendedNominal())
       return nominal->getAvailabilityForLinkage();
@@ -913,6 +916,9 @@ bool Decl::isAlwaysWeakImported() const {
 
   if (auto *accessor = dyn_cast<AccessorDecl>(this))
     return accessor->getStorage()->isAlwaysWeakImported();
+
+  if (auto *opaqueTypeDecl = dyn_cast<OpaqueTypeDecl>(this))
+    return opaqueTypeDecl->getNamingDecl()->isAlwaysWeakImported();
 
   if (auto *ext = dyn_cast<ExtensionDecl>(this))
     if (auto *nominal = ext->getExtendedNominal())
@@ -959,18 +965,12 @@ GenericContext::GenericContext(DeclContextKind Kind, DeclContext *Parent,
 
 TypeArrayView<GenericTypeParamType>
 GenericContext::getInnermostGenericParamTypes() const {
-  if (auto sig = getGenericSignature())
-    return sig->getInnermostGenericParams();
-  else
-    return { };
+  return getGenericSignature().getInnermostGenericParams();
 }
 
 /// Retrieve the generic requirements.
 ArrayRef<Requirement> GenericContext::getGenericRequirements() const {
-  if (auto sig = getGenericSignature())
-    return sig->getRequirements();
-  else
-    return { };
+  return getGenericSignature().getRequirements();
 }
 
 GenericParamList *GenericContext::getGenericParams() const {
@@ -1001,10 +1001,7 @@ GenericSignature GenericContext::getGenericSignature() const {
 }
 
 GenericEnvironment *GenericContext::getGenericEnvironment() const {
-  if (auto genericSig = getGenericSignature())
-    return genericSig->getGenericEnvironment();
-
-  return nullptr;
+  return getGenericSignature().getGenericEnvironment();
 }
 
 void GenericContext::setGenericSignature(GenericSignature genericSig) {
@@ -1157,9 +1154,15 @@ NominalTypeDecl::takeConformanceLoaderSlow() {
   return { contextInfo->loader, contextInfo->allConformancesData };
 }
 
+InheritedEntry::InheritedEntry(const TypeLoc &typeLoc)
+    : TypeLoc(typeLoc), isUnchecked(false) {
+  if (auto typeRepr = typeLoc.getTypeRepr())
+    isUnchecked = typeRepr->findUncheckedAttrLoc().isValid();
+}
+
 ExtensionDecl::ExtensionDecl(SourceLoc extensionLoc,
                              TypeRepr *extendedType,
-                             ArrayRef<TypeLoc> inherited,
+                             ArrayRef<InheritedEntry> inherited,
                              DeclContext *parent,
                              TrailingWhereClause *trailingWhereClause)
   : GenericContext(DeclContextKind::ExtensionDecl, parent, nullptr),
@@ -1176,7 +1179,7 @@ ExtensionDecl::ExtensionDecl(SourceLoc extensionLoc,
 
 ExtensionDecl *ExtensionDecl::create(ASTContext &ctx, SourceLoc extensionLoc,
                                      TypeRepr *extendedType,
-                                     ArrayRef<TypeLoc> inherited,
+                                     ArrayRef<InheritedEntry> inherited,
                                      DeclContext *parent,
                                      TrailingWhereClause *trailingWhereClause,
                                      ClangNode clangNode) {
@@ -1570,7 +1573,7 @@ SourceRange PatternBindingEntry::getSourceRange(bool omitAccessors) const {
 bool PatternBindingEntry::hasInitStringRepresentation() const {
   if (InitContextAndFlags.getInt().contains(PatternFlags::IsText))
     return !InitStringRepresentation.empty();
-  return getInit() && getInit()->getSourceRange().isValid();
+  return getOriginalInit() && getOriginalInit()->getSourceRange().isValid();
 }
 
 StringRef PatternBindingEntry::getInitStringRepresentation(
@@ -1595,10 +1598,12 @@ SourceRange PatternBindingDecl::getSourceRange() const {
 }
 
 static StaticSpellingKind getCorrectStaticSpellingForDecl(const Decl *D) {
-  if (!D->getDeclContext()->getSelfClassDecl())
-    return StaticSpellingKind::KeywordStatic;
+  if (auto classDecl = D->getDeclContext()->getSelfClassDecl()) {
+    if (!classDecl->isActor())
+      return StaticSpellingKind::KeywordClass;
+  }
 
-  return StaticSpellingKind::KeywordClass;
+  return StaticSpellingKind::KeywordStatic;
 }
 
 StaticSpellingKind PatternBindingDecl::getCorrectStaticSpelling() const {
@@ -2674,8 +2679,10 @@ static Type mapSignatureFunctionType(ASTContext &ctx, Type type,
   for (const auto &param : funcTy->getParams()) {
     auto newParamType = mapSignatureParamType(ctx, param.getPlainType());
 
-    // Don't allow overloading by @_nonEphemeral.
-    auto newFlags = param.getParameterFlags().withNonEphemeral(false);
+    // Don't allow overloading by @_nonEphemeral or isolated.
+    auto newFlags = param.getParameterFlags()
+        .withNonEphemeral(false)
+        .withIsolated(false);
 
     // For the 'self' of a method, strip off 'inout'.
     if (isMethod) {
@@ -2911,7 +2918,8 @@ bool ValueDecl::isObjCDynamicInGenericClass() const {
   if (!classDecl)
     return false;
 
-  return classDecl->isGenericContext() && !classDecl->usesObjCGenericsModel();
+  return classDecl->isGenericContext()
+             && !classDecl->isTypeErasedGenericClass();
 }
 
 bool ValueDecl::shouldUseObjCMethodReplacement() const {
@@ -3887,9 +3895,13 @@ bool NominalTypeDecl::isDistributedActor() const {
                            false);
 }
 
+bool NominalTypeDecl::isAnyActor() const {
+  return isActor() || isDistributedActor();
+}
+
 GenericTypeDecl::GenericTypeDecl(DeclKind K, DeclContext *DC,
                                  Identifier name, SourceLoc nameLoc,
-                                 ArrayRef<TypeLoc> inherited,
+                                 ArrayRef<InheritedEntry> inherited,
                                  GenericParamList *GenericParams) :
     GenericContext(DeclContextKind::GenericTypeDecl, DC, GenericParams),
     TypeDecl(K, DC, name, nameLoc, inherited) {}
@@ -4099,7 +4111,7 @@ AssociatedTypeDecl *AssociatedTypeDecl::getAssociatedTypeAnchor() const {
 
 EnumDecl::EnumDecl(SourceLoc EnumLoc,
                      Identifier Name, SourceLoc NameLoc,
-                     ArrayRef<TypeLoc> Inherited,
+                     ArrayRef<InheritedEntry> Inherited,
                      GenericParamList *GenericParams, DeclContext *Parent)
   : NominalTypeDecl(DeclKind::Enum, Parent, Name, NameLoc, Inherited,
                     GenericParams),
@@ -4123,7 +4135,7 @@ void EnumDecl::setRawType(Type rawType) {
 }
 
 StructDecl::StructDecl(SourceLoc StructLoc, Identifier Name, SourceLoc NameLoc,
-                       ArrayRef<TypeLoc> Inherited,
+                       ArrayRef<InheritedEntry> Inherited,
                        GenericParamList *GenericParams, DeclContext *Parent)
   : NominalTypeDecl(DeclKind::Struct, Parent, Name, NameLoc, Inherited,
                     GenericParams),
@@ -4178,7 +4190,7 @@ bool NominalTypeDecl::isTypeErasedGenericClass() const {
   // ObjC classes are type erased.
   // TODO: Unless they have magic methods...
   if (auto clas = dyn_cast<ClassDecl>(this))
-    return clas->hasClangNode() && clas->isGenericContext();
+    return clas->isTypeErasedGenericClass();
   return false;
 }
 
@@ -4257,7 +4269,7 @@ VarDecl *NominalTypeDecl::getGlobalActorInstance() const {
 }
 
 ClassDecl::ClassDecl(SourceLoc ClassLoc, Identifier Name, SourceLoc NameLoc,
-                     ArrayRef<TypeLoc> Inherited,
+                     ArrayRef<InheritedEntry> Inherited,
                      GenericParamList *GenericParams, DeclContext *Parent,
                      bool isActor)
   : NominalTypeDecl(DeclKind::Class, Parent, Name, NameLoc, Inherited,
@@ -4762,7 +4774,7 @@ bool EnumDecl::hasCircularRawValue() const {
 
 ProtocolDecl::ProtocolDecl(DeclContext *DC, SourceLoc ProtocolLoc,
                            SourceLoc NameLoc, Identifier Name,
-                           ArrayRef<TypeLoc> Inherited,
+                           ArrayRef<InheritedEntry> Inherited,
                            TrailingWhereClause *TrailingWhere)
     : NominalTypeDecl(DeclKind::Protocol, DC, Name, NameLoc, Inherited,
                       nullptr),
@@ -4834,8 +4846,7 @@ ValueDecl *ProtocolDecl::getSingleRequirement(DeclName name) const {
 }
 
 AssociatedTypeDecl *ProtocolDecl::getAssociatedType(Identifier name) const {
-  const auto flags = NominalTypeDecl::LookupDirectFlags::IgnoreNewExtensions;
-  auto results = const_cast<ProtocolDecl *>(this)->lookupDirect(name, flags);
+  auto results = const_cast<ProtocolDecl *>(this)->lookupDirect(name);
   for (auto candidate : results) {
     if (candidate->getDeclContext() == this &&
         isa<AssociatedTypeDecl>(candidate)) {
@@ -5982,7 +5993,7 @@ bool VarDecl::isMemberwiseInitialized(bool preferDeclaredProperties) const {
 }
 
 bool VarDecl::isAsyncLet() const {
-  return getAttrs().hasAttribute<AsyncAttr>() || getAttrs().hasAttribute<SpawnAttr>();
+  return getAttrs().hasAttribute<AsyncAttr>();
 }
 
 void ParamDecl::setSpecifier(Specifier specifier) {
@@ -7804,17 +7815,6 @@ bool FuncDecl::isMainTypeMainMethod() const {
          getParameters()->size() == 0;
 }
 
-bool VarDecl::isDistributedActorAddressName(ASTContext &ctx, DeclName name) {
-  assert(name.getArgumentNames().size() == 0);
-  return name.getBaseName() == ctx.Id_actorAddress;
-}
-
-bool VarDecl::isDistributedActorTransportName(ASTContext &ctx, DeclName name) {
-  assert(name.getArgumentNames().size() == 0);
-  return name.getBaseName() == ctx.Id_transport ||
-    name.getBaseName() == ctx.Id_actorTransport;
-}
-
 ConstructorDecl::ConstructorDecl(DeclName Name, SourceLoc ConstructorLoc,
                                  bool Failable, SourceLoc FailabilityLoc,
                                  bool Async, SourceLoc AsyncLoc,
@@ -7887,6 +7887,7 @@ bool ConstructorDecl::isDistributedActorLocalInit() const {
   return params->get(0)->getInterfaceType()->isEqual(transportType);
 }
 
+// TODO: remove resolve init in favor of resolve function?
 bool ConstructorDecl::isDistributedActorResolveInit() const {
   auto name = getName();
   auto argumentNames = name.getArgumentNames();
@@ -7900,12 +7901,10 @@ bool ConstructorDecl::isDistributedActorResolveInit() const {
     return false;
 
   auto *params = getParameters();
-  assert(params->size() == 2);
-
-  auto addressType = C.getActorAddressDecl()->getDeclaredInterfaceType();
+  auto identityType = C.getAnyActorIdentityDecl()->getDeclaredInterfaceType();
   auto transportType = C.getActorTransportDecl()->getDeclaredInterfaceType();
 
-  return params->get(0)->getInterfaceType()->isEqual(addressType) &&
+  return params->get(0)->getInterfaceType()->isEqual(identityType) &&
          params->get(1)->getInterfaceType()->isEqual(transportType);
 }
 
@@ -8517,7 +8516,7 @@ void swift::simple_display(llvm::raw_ostream &out, AccessorKind kind) {
 }
 
 SourceLoc swift::extractNearestSourceLoc(const Decl *decl) {
-  auto loc = decl->getLoc();
+  auto loc = decl->getLoc(/*SerializedOK=*/false);
   if (loc.isValid())
     return loc;
 

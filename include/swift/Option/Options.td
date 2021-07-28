@@ -549,6 +549,10 @@ def disable_bridging_pch : Flag<["-"], "disable-bridging-pch">,
 def lto : Joined<["-"], "lto=">,
   Flags<[FrontendOption, NoInteractiveOption]>,
   HelpText<"Specify the LTO type to either 'llvm-thin' or 'llvm-full'">;
+  
+def lto_library : Separate<["-"], "lto-library">,
+  Flags<[FrontendOption, ArgumentIsPath, NoInteractiveOption]>,
+  HelpText<"Perform LTO with <lto-library>">, MetaVarName<"<lto-library>">;
 
 def access_notes_path : Separate<["-"], "access-notes-path">,
   Flags<[FrontendOption, ArgumentIsPath]>,
@@ -594,6 +598,10 @@ def experimental_cxx_stdlib :
   Separate<["-"], "experimental-cxx-stdlib">,
   HelpText<"C++ standard library to use; forwarded to Clang's -stdlib flag">;
 
+def experimental_emit_module_separately:
+  Flag<["-"], "experimental-emit-module-separately">,
+  Flags<[FrontendOption, NoInteractiveOption, HelpHidden]>,
+  HelpText<"Schedule a swift module emission job instead of a merge-modules job (new Driver only)">;
 
 // Diagnostic control options
 def suppress_warnings : Flag<["-"], "suppress-warnings">,
@@ -1226,6 +1234,12 @@ def disable_autolinking_runtime_compatibility_dynamic_replacements
     : Flag<[ "-" ], "disable-autolinking-runtime-compatibility-dynamic-replacements">,
       Flags<[ FrontendOption ]>,
       HelpText<"Do not use autolinking for the dynamic replacement runtime "
+               "compatibility library">;
+
+def disable_autolinking_runtime_compatibility_concurrency
+    : Flag<[ "-" ], "disable-autolinking-runtime-compatibility-concurrency">,
+      Flags<[ FrontendOption ]>,
+      HelpText<"Do not use autolinking for the concurrency runtime "
                "compatibility library">;
 
 def emit_symbol_graph: Flag<["-"], "emit-symbol-graph">,

@@ -18,6 +18,7 @@
 #include "swift/Option/Options.h"
 #include "swift/Option/SanitizerOptions.h"
 #include "swift/Strings.h"
+#include "swift/SymbolGraphGen/SymbolGraphOptions.h"
 #include "llvm/ADT/STLExtras.h"
 #include "llvm/ADT/Triple.h"
 #include "llvm/Option/Arg.h"
@@ -818,9 +819,20 @@ static bool ParseLangArgs(LangOptions &Opts, ArgList &Args,
     }
   }
 
-  Opts.EnableRequirementMachine = Args.hasFlag(
-      OPT_enable_requirement_machine,
-      OPT_disable_requirement_machine, /*default=*/false);
+  if (auto A =
+          Args.getLastArg(OPT_requirement_machine_EQ)) {
+    auto value = llvm::StringSwitch<Optional<RequirementMachineMode>>(A->getValue())
+      .Case("off", RequirementMachineMode::Disabled)
+      .Case("on", RequirementMachineMode::Enabled)
+      .Case("verify", RequirementMachineMode::Verify)
+      .Default(None);
+
+    if (value)
+      Opts.EnableRequirementMachine = *value;
+    else
+      Diags.diagnose(SourceLoc(), diag::error_invalid_arg_value,
+                     A->getAsString(Args), A->getValue());
+  }
 
   Opts.DebugRequirementMachine = Args.hasArg(
       OPT_debug_requirement_machine);
@@ -1025,6 +1037,28 @@ static bool ParseClangImporterArgs(ClangImporterOptions &Opts,
       Args.hasArg(OPT_disable_clangimporter_source_import);
 
   return false;
+}
+
+static void ParseSymbolGraphArgs(symbolgraphgen::SymbolGraphOptions &Opts,
+                                 ArgList &Args,
+                                 DiagnosticEngine &Diags,
+                                 LangOptions &LangOpts) {
+  using namespace options;
+
+  if (const Arg *A = Args.getLastArg(OPT_emit_symbol_graph_dir)) {
+    Opts.OutputDir = A->getValue();
+  }
+
+  Opts.Target = LangOpts.Target;
+
+  Opts.SkipInheritedDocs = Args.hasArg(OPT_skip_inherited_docs);
+  Opts.IncludeSPISymbols = Args.hasArg(OPT_include_spi_symbols);
+
+  // default values for generating symbol graphs during a build
+  Opts.MinimumAccessLevel = AccessLevel::Public;
+  Opts.PrettyPrint = false;
+  Opts.EmitSynthesizedMembers = true;
+  Opts.PrintMessages = false;
 }
 
 static bool ParseSearchPathArgs(SearchPathOptions &Opts,
@@ -1809,6 +1843,8 @@ static bool ParseIRGenArgs(IRGenOptions &Opts, ArgList &Args,
         runtimeCompatibilityVersion = llvm::VersionTuple(5, 0);
       } else if (version.equals("5.1")) {
         runtimeCompatibilityVersion = llvm::VersionTuple(5, 1);
+      } else if (version.equals("5.5")) {
+        runtimeCompatibilityVersion = llvm::VersionTuple(5, 5);
       } else {
         Diags.diagnose(SourceLoc(), diag::error_invalid_arg_value,
                        versionArg->getAsString(Args), version);
@@ -1828,6 +1864,12 @@ static bool ParseIRGenArgs(IRGenOptions &Opts, ArgList &Args,
   if (!Args.hasArg(options::
           OPT_disable_autolinking_runtime_compatibility_dynamic_replacements)) {
     Opts.AutolinkRuntimeCompatibilityDynamicReplacementLibraryVersion =
+        getRuntimeCompatVersion();
+  }
+
+  if (!Args.hasArg(
+          options::OPT_disable_autolinking_runtime_compatibility_concurrency)) {
+    Opts.AutolinkRuntimeCompatibilityConcurrencyLibraryVersion =
         getRuntimeCompatVersion();
   }
 
@@ -1991,6 +2033,8 @@ bool CompilerInvocation::parseArgs(
     return true;
   }
 
+  ParseSymbolGraphArgs(SymbolGraphOpts, ParsedArgs, Diags, LangOpts);
+
   if (ParseSearchPathArgs(SearchPathOpts, ParsedArgs, Diags,
                           workingDirectory)) {
     return true;
@@ -2088,31 +2132,4 @@ CompilerInvocation::setUpInputForSILTool(
     getFrontendOptions().InputMode = FrontendOptions::ParseInputMode::SIL;
   }
   return fileBufOrErr;
-}
-
-bool CompilerInvocation::isModuleExternallyConsumed(
-    const ModuleDecl *mod) const {
-  // Modules for executables aren't expected to be consumed by other modules.
-  // This picks up all kinds of entrypoints, including script mode,
-  // @UIApplicationMain and @NSApplicationMain.
-  if (mod->hasEntryPoint()) {
-    return false;
-  }
-
-  // If an implicit Objective-C header was needed to construct this module, it
-  // must be the product of a library target.
-  if (!getFrontendOptions().ImplicitObjCHeaderPath.empty()) {
-    return false;
-  }
-
-  // App extensions are special beasts because they build without entrypoints
-  // like library targets, but they behave like executable targets because
-  // their associated modules are not suitable for distribution.
-  if (mod->getASTContext().LangOpts.EnableAppExtensionRestrictions) {
-    return false;
-  }
-
-  // FIXME: This is still a lousy approximation of whether the module file will
-  // be externally consumed.
-  return true;
 }

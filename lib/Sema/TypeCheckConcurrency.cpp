@@ -27,6 +27,7 @@
 #include "swift/AST/TypeCheckRequests.h"
 #include "swift/AST/TypeVisitor.h"
 #include "swift/AST/ExistentialLayout.h"
+#include "swift/Sema/IDETypeChecking.h"
 
 using namespace swift;
 
@@ -385,6 +386,7 @@ ActorIsolationRestriction ActorIsolationRestriction::forDeclaration(
       if (func->isAsyncContext())
         isAccessibleAcrossActors = true;
 
+      // FIXME: move diagnosis out of this function entirely (!)
       if (func->isDistributed()) {
         if (auto classDecl = dyn_cast<ClassDecl>(decl->getDeclContext())) {
           if (!classDecl->isDistributedActor()) {
@@ -393,10 +395,10 @@ ActorIsolationRestriction ActorIsolationRestriction::forDeclaration(
                 diag::distributed_actor_func_defined_outside_of_distributed_actor,
                 func->getName());
           }
-        }
+        } // TODO: need to handle protocol case here too?
 
-          return forDistributedActorSelf(isolation.getActor(),
-                                         /*isCrossActor*/ isAccessibleAcrossActors); // TODO: not sure?
+        return forDistributedActorSelf(isolation.getActor(),
+                                       /*isCrossActor*/ isAccessibleAcrossActors);
       }
     }
 
@@ -438,7 +440,6 @@ ActorIsolationRestriction ActorIsolationRestriction::forDeclaration(
     }
 
     case ActorIsolation::Independent:
-      // Actor-independent have no restrictions on their access.
       return forUnrestricted();
 
     case ActorIsolation::Unspecified:
@@ -501,7 +502,7 @@ findMemberReference(Expr *expr) {
 /// Note that this must be called after the implicitlyAsync flag has been set,
 /// or implicitly async calls will not return the correct value.
 static bool isAsyncCall(const ApplyExpr *call) {
-  if (call->implicitlyAsync())
+  if (call->isImplicitlyAsync())
     return true;
 
   // Effectively the same as doing a
@@ -1048,13 +1049,14 @@ namespace {
     ///      ...))
     ///
     /// and we reach up to mark the CallExpr.
-    void markNearestCallAsImplicitly(bool setAsync = false, bool setThrows = false) {
+    void markNearestCallAsImplicitly(
+        Optional<ImplicitActorHopTarget> setAsync, bool setThrows = false) {
       assert(applyStack.size() > 0 && "not contained within an Apply?");
 
       const auto End = applyStack.rend();
       for (auto I = applyStack.rbegin(); I != End; ++I)
         if (auto call = dyn_cast<CallExpr>(*I)) {
-          if (setAsync) call->setImplicitlyAsync(true);
+          if (setAsync) call->setImplicitlyAsync(*setAsync);
           if (setThrows) call->setImplicitlyThrows(true);
           return;
         }
@@ -1524,7 +1526,7 @@ namespace {
         case ActorIsolationRestriction::GlobalActor: {
           ctx.Diags.diagnose(argLoc, diag::actor_isolated_inout_state,
                              decl->getDescriptiveKind(), decl->getName(),
-                             call->implicitlyAsync());
+                             call->isImplicitlyAsync().hasValue());
           decl->diagnose(diag::kind_declared_here, decl->getDescriptiveKind());
           result = true;
           break;
@@ -1548,7 +1550,7 @@ namespace {
           } else {
             ctx.Diags.diagnose(argLoc, diag::actor_isolated_inout_state,
                                decl->getDescriptiveKind(), decl->getName(),
-                               call->implicitlyAsync());
+                               call->isImplicitlyAsync().hasValue());
             result = true;
           }
           break;
@@ -1621,7 +1623,8 @@ namespace {
     /// actor-isolated member (e.g., sync function application, property access)
     AsyncMarkingResult tryMarkImplicitlyAsync(SourceLoc declLoc,
                                               ConcreteDeclRef concDeclRef,
-                                              Expr* context) {
+                                              Expr* context,
+                                              ImplicitActorHopTarget target) {
       ValueDecl *decl = concDeclRef.getDecl();
       AsyncMarkingResult result = AsyncMarkingResult::NotFound;
 
@@ -1633,7 +1636,7 @@ namespace {
             if (!isInAsynchronousContext())
               return AsyncMarkingResult::SyncContext;
 
-            declRef->setImplicitlyAsync(true);
+            declRef->setImplicitlyAsync(target);
             result = AsyncMarkingResult::FoundAsync;
           }
         } else if (auto lookupExpr = dyn_cast_or_null<LookupExpr>(context)) {
@@ -1642,7 +1645,7 @@ namespace {
             if (!isInAsynchronousContext())
               return AsyncMarkingResult::SyncContext;
 
-            lookupExpr->setImplicitlyAsync(true);
+            lookupExpr->setImplicitlyAsync(target);
             result = AsyncMarkingResult::FoundAsync;
           }
         }
@@ -1655,7 +1658,7 @@ namespace {
         if (!isInAsynchronousContext())
           return AsyncMarkingResult::SyncContext;
 
-        markNearestCallAsImplicitly(/*setAsync=*/true);
+        markNearestCallAsImplicitly(/*setAsync=*/target);
         result = AsyncMarkingResult::FoundAsync;
 
       } else if (!applyStack.empty()) {
@@ -1668,13 +1671,13 @@ namespace {
         Expr *fn = apply->getFn()->getValueProvidingExpr();
         if (auto memberRef = findMemberReference(fn)) {
           auto concDecl = memberRef->first;
-          if (decl == concDecl.getDecl() && !apply->implicitlyAsync()) {
+          if (decl == concDecl.getDecl() && !apply->isImplicitlyAsync()) {
 
             if (!isInAsynchronousContext())
               return AsyncMarkingResult::SyncContext;
 
             // then this ValueDecl appears as the called value of the ApplyExpr.
-            markNearestCallAsImplicitly(/*setAsync=*/true);
+            markNearestCallAsImplicitly(/*setAsync=*/target);
             result = AsyncMarkingResult::FoundAsync;
           }
         }
@@ -1713,7 +1716,7 @@ namespace {
             //
             // If it already is throwing, no need to mark it implicitly so.
             markNearestCallAsImplicitly(
-                /*setAsync=*/false, /*setThrows=*/true);
+                /*setAsync=*/None, /*setThrows=*/true);
             result = ThrowsMarkingResult::FoundThrows;
           }
         }
@@ -1733,7 +1736,7 @@ namespace {
               if (func->isDistributed() && !func->hasThrows()) {
                 // then this ValueDecl appears as the called value of the ApplyExpr.
                 markNearestCallAsImplicitly(
-                    /*setAsync=*/false, /*setThrows=*/true);
+                    /*setAsync=*/None, /*setThrows=*/true);
                 result = ThrowsMarkingResult::FoundThrows;
               }
             }
@@ -1801,6 +1804,7 @@ namespace {
         return false;
 
       // Check for isolated parameters.
+      Optional<unsigned> isolatedParamIdx;
       for (unsigned paramIdx : range(fnType->getNumParams())) {
         // We only care about isolated parameters.
         if (!fnType->getParams()[paramIdx].isIsolated())
@@ -1824,6 +1828,7 @@ namespace {
         }
 
         unsatisfiedIsolation = ActorIsolation::forActorInstance(nominal);
+        isolatedParamIdx = paramIdx;
         break;
       }
 
@@ -1858,10 +1863,26 @@ namespace {
       }
 
       // Mark as implicitly async.
-      // FIXME: Record how it is implicitly async, e.g., by stashing a
-      // ClosureActorIsolation in ApplyExpr?
-      if (!fnType->getExtInfo().isAsync())
-        apply->setImplicitlyAsync(true);
+      if (!fnType->getExtInfo().isAsync()) {
+        switch (*unsatisfiedIsolation) {
+        case ActorIsolation::GlobalActor:
+        case ActorIsolation::GlobalActorUnsafe:
+          apply->setImplicitlyAsync(
+              ImplicitActorHopTarget::forGlobalActor(
+                unsatisfiedIsolation->getGlobalActor()));
+          break;
+
+        case ActorIsolation::DistributedActorInstance:
+        case ActorIsolation::ActorInstance:
+          apply->setImplicitlyAsync(
+            ImplicitActorHopTarget::forIsolatedParameter(*isolatedParamIdx));
+          break;
+
+        case ActorIsolation::Unspecified:
+        case ActorIsolation::Independent:
+          llvm_unreachable("Not actor-isolated");
+        }
+      }
 
       // If we don't need to check for sendability, we're done.
       if (!shouldDiagnoseNonSendableViolations(ctx.LangOpts))
@@ -1915,7 +1936,9 @@ namespace {
       switch (contextIsolation) {
       case ActorIsolation::ActorInstance:
       case ActorIsolation::DistributedActorInstance: {
-        auto result = tryMarkImplicitlyAsync(loc, valueRef, context);
+        auto result = tryMarkImplicitlyAsync(
+          loc, valueRef, context,
+          ImplicitActorHopTarget::forGlobalActor(globalActor));
         if (result == AsyncMarkingResult::FoundAsync)
           return false;
 
@@ -1934,7 +1957,9 @@ namespace {
       case ActorIsolation::GlobalActorUnsafe: {
         // Check if this decl reference is the callee of the enclosing Apply,
         // making it OK as an implicitly async call.
-        auto result = tryMarkImplicitlyAsync(loc, valueRef, context);
+        auto result = tryMarkImplicitlyAsync(
+            loc, valueRef, context,
+            ImplicitActorHopTarget::forGlobalActor(globalActor));
         if (result == AsyncMarkingResult::FoundAsync)
           return false;
 
@@ -1952,7 +1977,9 @@ namespace {
       }
 
       case ActorIsolation::Independent: {
-        auto result = tryMarkImplicitlyAsync(loc, valueRef, context);
+        auto result = tryMarkImplicitlyAsync(
+            loc, valueRef, context,
+            ImplicitActorHopTarget::forGlobalActor(globalActor));
         if (result == AsyncMarkingResult::FoundAsync)
           return false;
 
@@ -1969,7 +1996,9 @@ namespace {
       }
 
       case ActorIsolation::Unspecified: {
-        auto result = tryMarkImplicitlyAsync(loc, valueRef, context);
+        auto result = tryMarkImplicitlyAsync(
+            loc, valueRef, context,
+            ImplicitActorHopTarget::forGlobalActor(globalActor));
         if (result == AsyncMarkingResult::FoundAsync)
           return false;
 
@@ -2264,8 +2293,29 @@ namespace {
       switch (auto isolation =
                   ActorIsolationRestriction::forDeclaration(
                     memberRef, getDeclContext())) {
-      case ActorIsolationRestriction::Unrestricted:
+      case ActorIsolationRestriction::Unrestricted: {
+        // If a cross-actor reference is to an isolated actor, it's not
+        // crossing actors.
+        if (getIsolatedActor(base))
+          return false;
+
+        // Always fine to invoke constructors from outside of actors.
+        if (dyn_cast<ConstructorDecl>(member))
+          return false;
+
+        // While the member may be unrestricted, perhaps it is in a
+        // distributed actor, in which case we need to diagnose it.
+        if (auto classDecl = dyn_cast<ClassDecl>(member->getDeclContext())) {
+          if (classDecl->isDistributedActor()) {
+            fprintf(stderr, "[%s:%d] (%s) HERE\n", __FILE__, __LINE__, __FUNCTION__);
+            ctx.Diags.diagnose(memberLoc, diag::distributed_actor_isolated_method);
+            noteIsolatedActorMember(member, context);
+            return true;
+          }
+        }
+
         return false;
+      }
 
       case ActorIsolationRestriction::CrossActorSelf: {
         // If a cross-actor reference is to an isolated actor, it's not
@@ -2294,30 +2344,41 @@ namespace {
             !(isolatedActor.isActorSelf() &&
               member->isInstanceMember() &&
               isActorInitOrDeInitContext(getDeclContext()))) {
-          // invocation on not-'self', is only okey if this is a distributed func
-
+          // cross actor invocation is only ok for a distributed or static func
           if (auto func = dyn_cast<FuncDecl>(member)) {
-            if (!func->isDistributed()) {
+            if (func->isStatic()) {
+              // FIXME: rather, never end up as distributed actor self isolated
+              //        at all for static funcs
+              continueToCheckingLocalIsolation = true;
+            } else if (func->isDistributed()) {
+              tryMarkImplicitlyAsync(
+                  memberLoc, memberRef, context,
+                  ImplicitActorHopTarget::forInstanceSelf());
+              tryMarkImplicitlyThrows(memberLoc, memberRef, context);
+
+              // distributed func reference, that passes all checks, great!
+              continueToCheckingLocalIsolation = true;
+            } else {
+              // the func is neither static or distributed
               ctx.Diags.diagnose(memberLoc, diag::distributed_actor_isolated_method);
               // TODO: offer a fixit to add 'distributed' on the member; how to test fixits? See also https://github.com/apple/swift/pull/35930/files
               noteIsolatedActorMember(member, context);
               return true;
             }
-
-            assert(func->isDistributed());
-            tryMarkImplicitlyAsync(memberLoc, memberRef, context);
-            tryMarkImplicitlyThrows(memberLoc, memberRef, context);
-
-            // distributed func reference, that passes all checks, great!
-            continueToCheckingLocalIsolation = true;
           } // end FuncDecl
 
           if (!continueToCheckingLocalIsolation) {
             // it wasn't a function (including a distributed function),
             // so we need to perform some more checks
             if (auto var = dyn_cast<VarDecl>(member)) {
+              // TODO: we want to remove _distributedActorIndependent in favor of nonisolated
+              //
               // @_distributedActorIndependent decls are accessible always,
               // regardless of distributed actor-isolation; e.g. actorAddress
+              if (member->getAttrs().hasAttribute<DistributedActorIndependentAttr>())
+                return false;
+
+              // nonisolated decls are accessible always
               if (member->getAttrs().hasAttribute<DistributedActorIndependentAttr>())
                 return false;
 
@@ -2330,13 +2391,16 @@ namespace {
                 noteIsolatedActorMember(member, context);
                 return true;
               }
-            }
+            } // end VarDecl
 
             // TODO: would have to also consider subscripts and other things
           }
         } // end !isolatedActor
 
-        return false;
+        if (!continueToCheckingLocalIsolation)
+          return false;
+
+        LLVM_FALLTHROUGH;
       }
 
       case ActorIsolationRestriction::ActorSelf: {
@@ -2365,7 +2429,8 @@ namespace {
 
         // Try implicit asynchronous access.
         auto implicitAsyncResult = tryMarkImplicitlyAsync(
-            memberLoc, memberRef, context);
+            memberLoc, memberRef, context,
+            ImplicitActorHopTarget::forInstanceSelf());
         if (implicitAsyncResult == AsyncMarkingResult::FoundAsync)
           return false; // no problems
         else if (implicitAsyncResult == AsyncMarkingResult::NotSendable)
@@ -2411,6 +2476,15 @@ namespace {
       case ActorIsolationRestriction::Unsafe:
         // This case is hit when passing actor state inout to functions in some
         // cases. The error is emitted by diagnoseInOutArg.
+        auto classDecl = dyn_cast<ClassDecl>(member->getDeclContext());
+        if (classDecl && classDecl->isDistributedActor()) {
+          auto funcDecl = dyn_cast<AbstractFunctionDecl>(member);
+          if (funcDecl && !funcDecl->isStatic()) {
+            member->diagnose(diag::distributed_actor_isolated_method);
+            return true;
+          }
+        }
+
         return false;
       }
       llvm_unreachable("unhandled actor isolation kind!");
@@ -3132,10 +3206,17 @@ ActorIsolation ActorIsolationRequest::evaluate(
   // overridden by other inference rules.
   ActorIsolation defaultIsolation = ActorIsolation::forUnspecified();
 
-  // A @Sendable function is assumed to be actor-independent.
   if (auto func = dyn_cast<AbstractFunctionDecl>(value)) {
+    // A @Sendable function is assumed to be actor-independent.
     if (func->isSendable()) {
       defaultIsolation = ActorIsolation::forIndependent();
+    }
+
+    if (auto nominal = value->getDeclContext()->getSelfNominalTypeDecl()) {
+      /// Unless the function is static, it is isolated to the dist actor
+      if (nominal->isDistributedActor() && !func->isStatic()) {
+        defaultIsolation = ActorIsolation::forDistributedActorInstance(nominal);
+      }
     }
   }
 
@@ -3172,10 +3253,14 @@ ActorIsolation ActorIsolationRequest::evaluate(
     }
 
     case ActorIsolation::DistributedActorInstance: {
-      /// 'distributed actor independent' implies 'actor independent'
-      if (value->isDistributedActorIndependent())
+      /// 'distributed actor independent' implies 'nonisolated'
+      if (value->isDistributedActorIndependent()) {
+        // TODO: rename 'distributed actor independent' to 'distributed(nonisolated)'
         value->getAttrs().add(
             new (ctx) DistributedActorIndependentAttr(/*IsImplicit=*/true));
+        value->getAttrs().add(
+            new (ctx) NonisolatedAttr(/*IsImplicit=*/true));
+      }
       break;
     }
     case ActorIsolation::ActorInstance:
@@ -3186,8 +3271,29 @@ ActorIsolation ActorIsolationRequest::evaluate(
       // Nothing to do.
       break;
     }
+
     return inferred;
   };
+
+  // If this is a "defer" function body, inherit the global actor isolation
+  // from its context.
+  if (auto func = dyn_cast<FuncDecl>(value)) {
+    if (func->isDeferBody()) {
+      switch (auto enclosingIsolation =
+                  getActorIsolationOfContext(func->getDeclContext())) {
+      case ActorIsolation::ActorInstance:
+      case ActorIsolation::DistributedActorInstance:
+      case ActorIsolation::Independent:
+      case ActorIsolation::Unspecified:
+        // Do nothing.
+        break;
+
+      case ActorIsolation::GlobalActor:
+      case ActorIsolation::GlobalActorUnsafe:
+        return inferredIsolation(enclosingIsolation);
+      }
+    }
+  }
 
   // If the declaration overrides another declaration, it must have the same
   // actor isolation.
@@ -3291,7 +3397,7 @@ bool HasIsolatedSelfRequest::evaluate(
   // Only ever applies to members of actors.
   auto dc = value->getDeclContext();
   auto selfTypeDecl = dc->getSelfNominalTypeDecl();
-  if (!selfTypeDecl || !selfTypeDecl->isActor())
+  if (!selfTypeDecl || !selfTypeDecl->isAnyActor())
     return false;
 
   // For accessors, consider the storage declaration.
@@ -3607,6 +3713,20 @@ bool swift::checkSendableConformance(
       return false;
   }
 
+  // Global-actor-isolated types can be Sendable. We do not check the
+  // instance data because it's all isolated to the global actor.
+  switch (getActorIsolation(nominal)) {
+  case ActorIsolation::Unspecified:
+  case ActorIsolation::ActorInstance:
+  case ActorIsolation::DistributedActorInstance:
+  case ActorIsolation::Independent:
+    break;
+
+  case ActorIsolation::GlobalActor:
+  case ActorIsolation::GlobalActorUnsafe:
+    return false;
+  }
+
   // Sendable can only be used in the same source file.
   auto conformanceDecl = conformanceDC->getAsDecl();
   auto behavior = toDiagnosticBehavior(
@@ -3620,20 +3740,6 @@ bool swift::checkSendableConformance(
 
     if (behavior != DiagnosticBehavior::Warning)
       return true;
-  }
-
-  // Global-actor-isolated types can be Sendable. We do not check the
-  // instance properties.
-  switch (getActorIsolation(nominal)) {
-  case ActorIsolation::Unspecified:
-  case ActorIsolation::ActorInstance:
-  case ActorIsolation::DistributedActorInstance:
-  case ActorIsolation::Independent:
-    break;
-
-  case ActorIsolation::GlobalActor:
-  case ActorIsolation::GlobalActorUnsafe:
-    return false;
   }
 
   if (classDecl) {
@@ -3722,7 +3828,7 @@ NormalProtocolConformance *GetImplicitSendableRequest::evaluate(
 
     auto conformance = ctx.getConformance(
         nominal->getDeclaredInterfaceType(), proto, nominal->getLoc(),
-        nominal, ProtocolConformanceState::Complete);
+        nominal, ProtocolConformanceState::Complete, false);
     conformance->setSourceKindAndImplyingConformance(
         ConformanceEntryKind::Synthesized, nullptr);
 
@@ -3825,4 +3931,8 @@ AnyFunctionType *swift::applyGlobalActorType(
 
   return FunctionType::get(
       fnType->getParams(), Type(innerFnType), fnType->getExtInfo());
+}
+
+bool swift::completionContextUsesConcurrencyFeatures(const DeclContext *dc) {
+  return contextUsesConcurrencyFeatures(dc);
 }

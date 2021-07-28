@@ -35,9 +35,11 @@
 #include "swift/AST/PropertyWrappers.h"
 #include "swift/AST/SourceFile.h"
 #include "swift/AST/StorageImpl.h"
+#include "swift/AST/SwiftNameTranslation.h"
 #include "swift/AST/TypeCheckRequests.h"
 #include "swift/AST/Types.h"
 #include "swift/Parse/Lexer.h"
+#include "swift/Parse/Parser.h"
 #include "swift/Sema/IDETypeChecking.h"
 #include "clang/Basic/CharInfo.h"
 #include "llvm/ADT/STLExtras.h"
@@ -258,8 +260,6 @@ public:
   void visitDistributedActorIndependentAttr(DistributedActorIndependentAttr *attr);
   void visitGlobalActorAttr(GlobalActorAttr *attr);
   void visitAsyncAttr(AsyncAttr *attr);
-  void visitSpawnAttr(SpawnAttr *attr);
-  void visitAsyncOrSpawnAttr(DeclAttribute *attr);
   void visitMarkerAttr(MarkerAttr *attr);
 
   void visitReasyncAttr(ReasyncAttr *attr);
@@ -2174,7 +2174,7 @@ static void checkSpecializeAttrRequirements(SpecializeAttr *attr,
 
   SmallVector<GenericTypeParamType *, 2> unspecializedParams;
 
-  for (auto *paramTy : specializedSig->getGenericParams()) {
+  for (auto *paramTy : specializedSig.getGenericParams()) {
     auto canTy = paramTy->getCanonicalType();
     if (specializedSig->isCanonicalTypeInContext(canTy) &&
         (!specializedSig->getLayoutConstraint(canTy) ||
@@ -2183,7 +2183,7 @@ static void checkSpecializeAttrRequirements(SpecializeAttr *attr,
     }
   }
 
-  unsigned expectedCount = specializedSig->getGenericParams().size();
+  unsigned expectedCount = specializedSig.getGenericParams().size();
   unsigned gotCount = expectedCount - unspecializedParams.size();
 
   if (expectedCount == gotCount)
@@ -2781,7 +2781,7 @@ TypeEraserHasViableInitRequest::evaluate(Evaluator &evaluator,
       return false;
 
     auto genericSignature = init->getGenericSignature();
-    auto genericParamType = genericSignature->getInnermostGenericParams().front();
+    auto genericParamType = genericSignature.getInnermostGenericParams().front();
 
     // Fow now, only allow one parameter.
     auto params = init->getParameters();
@@ -2807,7 +2807,7 @@ TypeEraserHasViableInitRequest::evaluate(Evaluator &evaluator,
 
     // Use invalid 'SourceLoc's to suppress diagnostics.
     auto result = TypeChecker::checkGenericArguments(
-          module, genericSignature->getRequirements(),
+          module, genericSignature.getRequirements(),
           [&](SubstitutableType *type) -> Type {
             if (type->isEqual(genericParamType))
               return protocol->getSelfTypeInContext();
@@ -3357,10 +3357,9 @@ Type TypeChecker::checkReferenceOwnershipAttr(VarDecl *var, Type type,
   if (PDC && !PDC->isObjC()) {
     // Ownership does not make sense in protocols, except for "weak" on
     // properties of Objective-C protocols.
-    auto D = var->getASTContext().isSwiftVersionAtLeast(5)
-                 ? diag::ownership_invalid_in_protocols
-                 : diag::ownership_invalid_in_protocols_compat_warning;
+    auto D = diag::ownership_invalid_in_protocols;
     Diags.diagnose(attr->getLocation(), D, ownershipKind)
+        .warnUntilSwiftVersion(5)
         .fixItRemove(attr->getRange());
     attr->setInvalid();
   }
@@ -4521,9 +4520,7 @@ IndexSubset *DifferentiableAttributeTypeCheckRequest::evaluate(
   if (resolveDifferentiableAttrDerivativeGenericSignature(attr, original,
                                                           derivativeGenSig))
     return nullptr;
-  GenericEnvironment *derivativeGenEnv = nullptr;
-  if (derivativeGenSig)
-    derivativeGenEnv = derivativeGenSig->getGenericEnvironment();
+  auto *derivativeGenEnv = derivativeGenSig.getGenericEnvironment();
 
   // Compute the derivative function type.
   auto originalFnRemappedTy = originalFnTy;
@@ -5430,7 +5427,8 @@ void AttributeChecker::visitDistributedActorAttr(DistributedActorAttr *attr) {
       return;
     }
   } else if (dyn_cast<StructDecl>(D) || dyn_cast<EnumDecl>(D)) {
-    diagnoseAndRemoveAttr(attr, diag::distributed_actor_func_not_in_distributed_actor);
+    diagnoseAndRemoveAttr(
+        attr, diag::distributed_actor_func_not_in_distributed_actor);
     return;
   }
 
@@ -5441,19 +5439,31 @@ void AttributeChecker::visitDistributedActorAttr(DistributedActorAttr *attr) {
       return;
     }
 
+    // distributed func cannot be simultaneously nonisolated
+    if (auto nonisolated =
+            funcDecl->getAttrs().getAttribute<NonisolatedAttr>()) {
+      diagnoseAndRemoveAttr(nonisolated,
+                            diag::distributed_actor_func_nonisolated,
+                            funcDecl->getName());
+      return;
+    }
+
     // distributed func must be declared inside an distributed actor
     if (dc->getSelfClassDecl() &&
         !dc->getSelfClassDecl()->isDistributedActor()) {
-      diagnoseAndRemoveAttr(attr, diag::distributed_actor_func_not_in_distributed_actor);
+      diagnoseAndRemoveAttr(
+          attr, diag::distributed_actor_func_not_in_distributed_actor);
       return;
     } else if (auto protoDecl = dc->getSelfProtocolDecl()){
       if (!protoDecl->inheritsFromDistributedActor()) {
         // TODO: could suggest adding `: DistributedActor` to the protocol as well
-        diagnoseAndRemoveAttr(attr, diag::distributed_actor_func_not_in_distributed_actor);
+        diagnoseAndRemoveAttr(
+            attr, diag::distributed_actor_func_not_in_distributed_actor);
         return;
       }
     } else if (dc->getSelfStructDecl() || dc->getSelfEnumDecl()) {
-      diagnoseAndRemoveAttr(attr, diag::distributed_actor_func_not_in_distributed_actor);
+      diagnoseAndRemoveAttr(
+          attr, diag::distributed_actor_func_not_in_distributed_actor);
       return;
     }
   }
@@ -5463,11 +5473,27 @@ void AttributeChecker::visitNonisolatedAttr(NonisolatedAttr *attr) {
   // 'nonisolated' can be applied to global and static/class variables
   // that do not have storage.
   auto dc = D->getDeclContext();
+
   if (auto var = dyn_cast<VarDecl>(D)) {
-    // 'nonisolated' can not be applied to mutable stored properties.
-    if (var->hasStorage() && var->supportsMutation()) {
-      diagnoseAndRemoveAttr(attr, diag::nonisolated_mutable_storage);
-      return;
+    // stored properties have limitations as to when they can be nonisolated.
+    if (var->hasStorage()) {
+      auto nominal = dyn_cast<NominalTypeDecl>(dc);
+
+      // 'nonisolated' can not be applied to stored properties inside
+      // distributed actors. Attempts of nonisolated access would be
+      // cross-actor, and that means they might be accessing on a remote actor,
+      // in which case the stored property storage does not exist.
+      if (nominal && nominal->isDistributedActor()) {
+        diagnoseAndRemoveAttr(attr,
+                              diag::nonisolated_distributed_actor_storage);
+        return;
+      }
+
+      // 'nonisolated' can not be applied to mutable stored properties.
+      if (var->supportsMutation()) {
+        diagnoseAndRemoveAttr(attr, diag::nonisolated_mutable_storage);
+        return;
+      }
     }
 
     // nonisolated can not be applied to local properties.
@@ -5507,16 +5533,6 @@ void AttributeChecker::visitGlobalActorAttr(GlobalActorAttr *attr) {
 }
 
 void AttributeChecker::visitAsyncAttr(AsyncAttr *attr) {
-  if (isa<VarDecl>(D)) {
-    visitAsyncOrSpawnAttr(attr);
-  }
-}
-
-void AttributeChecker::visitSpawnAttr(SpawnAttr *attr) {
-  visitAsyncOrSpawnAttr(attr);
-}
-
-void AttributeChecker::visitAsyncOrSpawnAttr(DeclAttribute *attr) {
   auto var = dyn_cast<VarDecl>(D);
   if (!var)
     return;
@@ -5867,4 +5883,113 @@ AbstractFunctionDecl *AsyncAlternativeRequest::evaluate(
 
     return candidates.front();
   }
+}
+
+static bool renameCouldMatch(const ValueDecl *original,
+                             const ValueDecl *candidate,
+                             bool originalIsObjCVisible,
+                             AccessLevel minAccess) {
+  // Kinds have to match
+  if (candidate->getKind() != original->getKind())
+    return false;
+
+  // Instance can't match static/class function
+  if (candidate->isInstanceMember() != original->isInstanceMember())
+    return false;
+
+  // If the original is ObjC visible then the rename must be as well
+  if (originalIsObjCVisible &&
+      !objc_translation::isVisibleToObjC(candidate, minAccess))
+    return false;
+
+  // @available is intended for public interfaces, so an implementation-only
+  // decl shouldn't match
+  if (candidate->getAttrs().hasAttribute<ImplementationOnlyAttr>())
+    return false;
+
+  return true;
+}
+
+static bool parametersMatch(const AbstractFunctionDecl *a,
+                            const AbstractFunctionDecl *b) {
+  auto aParams = a->getParameters();
+  auto bParams = b->getParameters();
+
+  if (aParams->size() != bParams->size())
+    return false;
+
+  for (auto index : indices(*aParams)) {
+    auto aParamType = aParams->get(index)->getType();
+    auto bParamType = bParams->get(index)->getType();
+    if (!aParamType->matchesParameter(bParamType, TypeMatchOptions()))
+      return false;
+  }
+  return true;
+}
+
+ValueDecl *RenamedDeclRequest::evaluate(Evaluator &evaluator,
+                                        const ValueDecl *attached,
+                                        const AvailableAttr *attr) const {
+  if (attr->Rename.empty())
+    return nullptr;
+
+  auto declContext = attached->getDeclContext();
+  ASTContext &astContext = attached->getASTContext();
+  auto renamedParsedDeclName = parseDeclName(attr->Rename);
+  auto renamedDeclName = renamedParsedDeclName.formDeclNameRef(astContext);
+
+  if (isa<ClassDecl>(attached) || isa<ProtocolDecl>(attached)) {
+    if (!renamedParsedDeclName.ContextName.empty()) {
+      return nullptr;
+    }
+    SmallVector<ValueDecl *, 1> decls;
+    declContext->lookupQualified(declContext->getParentModule(),
+                                 renamedDeclName.withoutArgumentLabels(),
+                                 NL_OnlyTypes,
+                                 decls);
+    if (decls.size() == 1)
+      return decls[0];
+    return nullptr;
+  }
+
+  TypeDecl *typeDecl = declContext->getSelfNominalTypeDecl();
+
+  SmallVector<ValueDecl *, 4> lookupResults;
+  declContext->lookupQualified(typeDecl->getDeclaredInterfaceType(),
+                               renamedDeclName, NL_QualifiedDefault,
+                               lookupResults);
+
+  auto minAccess = AccessLevel::Private;
+  if (attached->getModuleContext()->isExternallyConsumed())
+    minAccess = AccessLevel::Public;
+  bool attachedIsObjcVisible =
+      objc_translation::isVisibleToObjC(attached, minAccess);
+
+  if (lookupResults.size() == 1) {
+    auto candidate = lookupResults[0];
+    if (!renameCouldMatch(attached, candidate, attachedIsObjcVisible,
+                          minAccess))
+      return nullptr;
+    return candidate;
+  }
+
+  ValueDecl *renamedDecl = nullptr;
+  for (auto candidate : lookupResults) {
+    if (!renameCouldMatch(attached, candidate, attachedIsObjcVisible,
+                          minAccess))
+      continue;
+
+    if (isa<AbstractFunctionDecl>(candidate) &&
+        !parametersMatch(cast<AbstractFunctionDecl>(attached),
+                         cast<AbstractFunctionDecl>(candidate)))
+        continue;
+
+    if (renamedDecl) {
+      // Don't allow ambiguous matches
+      renamedDecl = nullptr;
+      break;
+    }
+    renamedDecl = candidate;
+  }
+  return renamedDecl;
 }

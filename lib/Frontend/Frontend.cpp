@@ -180,7 +180,7 @@ SerializationOptions CompilerInvocation::computeSerializationOptions(
   // the public.
   serializationOpts.SerializeOptionsForDebugging =
       opts.SerializeOptionsForDebugging.getValueOr(
-          !isModuleExternallyConsumed(module));
+          !module->isExternallyConsumed());
 
   serializationOpts.DisableCrossModuleIncrementalInfo =
       opts.DisableCrossModuleIncrementalBuild;
@@ -223,6 +223,7 @@ bool CompilerInstance::setUpASTContextIfNeeded() {
       Invocation.getLangOptions(), Invocation.getTypeCheckerOptions(),
       Invocation.getSearchPathOptions(),
       Invocation.getClangImporterOptions(),
+      Invocation.getSymbolGraphOptions(),
       SourceMgr, Diagnostics));
   registerParseRequestFunctions(Context->evaluator);
   registerTypeCheckerRequestFunctions(Context->evaluator);
@@ -451,6 +452,8 @@ void CompilerInstance::setUpDiagnosticOptions() {
   }
   Diagnostics.setDiagnosticDocumentationPath(
       Invocation.getDiagnosticOptions().DiagnosticDocumentationPath);
+  Diagnostics.setLanguageVersion(
+      Invocation.getLangOptions().EffectiveLanguageVersion);
   if (!Invocation.getDiagnosticOptions().LocalizationCode.empty()) {
     Diagnostics.setLocalization(
         Invocation.getDiagnosticOptions().LocalizationCode,

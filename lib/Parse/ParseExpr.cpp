@@ -229,7 +229,7 @@ parse_operator:
       // this, because then we can produce a fixit to rewrite the && into a ,
       // if we're in a stmt-condition.
       if (Tok.getText() == "&&" &&
-          peekToken().isAny(tok::pound_available,
+          peekToken().isAny(tok::pound_available, tok::pound_unavailable,
                             tok::kw_let, tok::kw_var, tok::kw_case))
         goto done;
       
@@ -1211,13 +1211,17 @@ Parser::parseExprPostfixSuffix(ParserResult<Expr> Result, bool isExprBasic,
         SmallVector<TypeRepr *, 8> args;
         SourceLoc LAngleLoc, RAngleLoc;
         auto argStat = parseGenericArguments(args, LAngleLoc, RAngleLoc);
+        Result = makeParserResult(Result | argStat, Result.getPtrOrNull());
         if (argStat.isErrorOrHasCompletion())
           diagnose(LAngleLoc, diag::while_parsing_as_left_angle_bracket);
 
         SyntaxContext->createNodeInPlace(SyntaxKind::SpecializeExpr);
-        Result = makeParserResult(
-            Result, UnresolvedSpecializeExpr::create(
-                        Context, Result.get(), LAngleLoc, args, RAngleLoc));
+        // The result can be empty in error cases.
+        if (!args.empty()) {
+          Result = makeParserResult(
+              Result, UnresolvedSpecializeExpr::create(
+                          Context, Result.get(), LAngleLoc, args, RAngleLoc));
+        }
       }
 
       continue;
@@ -1745,10 +1749,12 @@ ParserResult<Expr> Parser::parseExprPrimary(Diag<> ID, bool isExprBasic) {
   case tok::l_square:
     return parseExprCollection();
 
-  case tok::pound_available: {
-    // For better error recovery, parse but reject #available in an expr
+  case tok::pound_available:
+  case tok::pound_unavailable: {
+    // For better error recovery, parse but reject availability in an expr
     // context.
-    diagnose(Tok.getLoc(), diag::availability_query_outside_if_stmt_guard);
+    diagnose(Tok.getLoc(), diag::availability_query_outside_if_stmt_guard, 
+             Tok.getText());
     auto res = parseStmtConditionPoundAvailable();
     if (res.hasCodeCompletion())
       return makeParserCodeCompletionStatus();

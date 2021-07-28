@@ -547,7 +547,7 @@ namespace {
       }
 
       auto sig = gft->getGenericSignature();
-      auto *env = sig->getGenericEnvironment();
+      auto *env = sig.getGenericEnvironment();
 
       witnessType = FunctionType::get(gft->getParams(),
                                       gft->getResult(),
@@ -1067,7 +1067,7 @@ namespace {
         outerParamTypes.push_back(AnyFunctionType::Param(outerParamType,
                                                          Identifier(),
                                                          paramInfo[i].getParameterFlags()));
-        outerParam->setInterfaceType(outerParamType);
+        outerParam->setInterfaceType(outerParamType->mapTypeOutOfContext());
 
         if (fnDecl.getAbstractFunctionDecl())
           argLabels.push_back(innerParam->getArgumentName());
@@ -1092,8 +1092,8 @@ namespace {
       FunctionType::ExtInfo closureInfo;
       auto *autoClosureType =
           FunctionType::get(outerParamTypes, fnType->getResult(), closureInfo);
-      auto *autoClosure = new (context) AutoClosureExpr(fnCall, autoClosureType,
-                                                        discriminator, cs.DC);
+      auto *autoClosure = new (context)
+          AutoClosureExpr(fnCall, autoClosureType, discriminator, dc);
       autoClosure->setParameterList(outerParams);
       autoClosure->setThunkKind(AutoClosureExpr::Kind::SingleCurryThunk);
       cs.cacheType(autoClosure);
@@ -1126,9 +1126,8 @@ namespace {
 
       auto resultTy = selfFnTy->getResult();
       auto discriminator = AutoClosureExpr::InvalidDiscriminator;
-      auto closure =
-          new (context) AutoClosureExpr(/*set body later*/nullptr, resultTy,
-                                        discriminator, cs.DC);
+      auto closure = new (context) AutoClosureExpr(/*set body later*/ nullptr,
+                                                   resultTy, discriminator, dc);
       closure->setParameterList(params);
       closure->setType(selfFnTy);
       closure->setThunkKind(AutoClosureExpr::Kind::SingleCurryThunk);
@@ -1693,8 +1692,7 @@ namespace {
                                        memberLocator);
 
         auto outerClosure =
-            new (context) AutoClosureExpr(closure, selfFnTy,
-                                          discriminator, cs.DC);
+            new (context) AutoClosureExpr(closure, selfFnTy, discriminator, dc);
         outerClosure->setThunkKind(AutoClosureExpr::Kind::DoubleCurryThunk);
 
         outerClosure->setParameterList(outerParams);
@@ -2452,7 +2450,7 @@ namespace {
       auto subMap = SubstitutionMap::get(
           genericSig,
           [&](SubstitutableType *type) -> Type {
-            assert(type->isEqual(genericSig->getGenericParams()[0]));
+            assert(type->isEqual(genericSig.getGenericParams()[0]));
             return valueType;
           },
           [&](CanType origType, Type replacementType,
@@ -6056,14 +6054,15 @@ Expr *ExprRewriter::coerceCallArguments(
         bool isDefaultWrappedValue =
             target->propertyWrapperHasInitialWrappedValue();
         auto *placeholder = injectWrappedValuePlaceholder(
-            cs.buildAutoClosureExpr(arg, closureType, isDefaultWrappedValue),
+            cs.buildAutoClosureExpr(arg, closureType, dc,
+                                    isDefaultWrappedValue),
             /*isAutoClosure=*/true);
         arg = CallExpr::createImplicit(ctx, placeholder, {}, {});
         arg->setType(closureType->getResult());
         cs.cacheType(arg);
       }
 
-      convertedArg = cs.buildAutoClosureExpr(arg, closureType);
+      convertedArg = cs.buildAutoClosureExpr(arg, closureType, dc);
     } else {
       convertedArg = coerceToType(
           arg, paramType,
@@ -7892,6 +7891,15 @@ static std::pair<Expr *, unsigned> getPrecedenceParentAndIndex(Expr *expr,
   }
   Expr *parent = it->second;
 
+  // Look through an unresolved chain wrapper expr, as it has no effect on
+  // precedence.
+  if (isa<UnresolvedMemberChainResultExpr>(parent)) {
+    it = parentMap.find(parent);
+    if (it == parentMap.end())
+      return {nullptr, 0};
+    parent = it->second;
+  }
+
   // Handle all cases where the answer isn't just going to be { parent, 0 }.
   if (auto tuple = dyn_cast<TupleExpr>(parent)) {
     // Get index of expression in tuple.
@@ -7971,13 +7979,13 @@ bool swift::exprNeedsParensOutsideFollowingOperator(
   Expr *parent;
   unsigned index;
   std::tie(parent, index) = getPrecedenceParentAndIndex(expr, rootExpr);
-  if (!parent || isa<TupleExpr>(parent)) {
+  if (!parent)
     return false;
-  }
 
-  if (auto parenExp = dyn_cast<ParenExpr>(parent))
-    if (!parenExp->isImplicit())
+  if (isa<ParenExpr>(parent) || isa<TupleExpr>(parent)) {
+    if (!parent->isImplicit())
       return false;
+  }
 
   if (parent->isInfixOperator()) {
     auto parentPG = TypeChecker::lookupPrecedenceGroupForInfixOperator(DC,
@@ -8152,11 +8160,12 @@ namespace {
 
         if (auto *projectionVar = param->getPropertyWrapperProjectionVar()) {
           projectionVar->setInterfaceType(
-              solution.simplifyType(solution.getType(projectionVar)));
+              solution.simplifyType(solution.getType(projectionVar))->mapTypeOutOfContext());
         }
 
         auto *wrappedValueVar = param->getPropertyWrapperWrappedValueVar();
-        auto wrappedValueType = solution.simplifyType(solution.getType(wrappedValueVar));
+        auto wrappedValueType =
+            solution.simplifyType(solution.getType(wrappedValueVar))->mapTypeOutOfContext();
         wrappedValueVar->setInterfaceType(wrappedValueType->getWithoutSpecifierType());
 
         if (param->hasImplicitPropertyWrapper()) {
@@ -8324,7 +8333,7 @@ static Expr *wrapAsyncLetInitializer(
   auto closureType = FunctionType::get({ }, initializerType, extInfo);
   ASTContext &ctx = dc->getASTContext();
   Expr *autoclosureExpr = cs.buildAutoClosureExpr(
-      initializer, closureType, /*isDefaultWrappedValue=*/false,
+      initializer, closureType, dc, /*isDefaultWrappedValue=*/false,
       /*isAsyncLetWrapper=*/true);
 
   // Call the autoclosure so that the AST types line up. SILGen will ignore the
@@ -8792,7 +8801,8 @@ ExprWalker::rewriteTarget(SolutionApplicationTarget target) {
     // conversion.
     if (FunctionType *autoclosureParamType =
             target.getAsAutoclosureParamType()) {
-      resultExpr = cs.buildAutoClosureExpr(resultExpr, autoclosureParamType);
+      resultExpr = cs.buildAutoClosureExpr(resultExpr, autoclosureParamType,
+                                           target.getDeclContext());
     }
 
     solution.setExprTypes(resultExpr);
@@ -8899,6 +8909,12 @@ bool Solution::hasType(ASTNode node) const {
   return cs.hasType(node);
 }
 
+bool Solution::hasType(const KeyPathExpr *KP, unsigned ComponentIndex) const {
+  assert(KP && "Expected non-null key path parameter!");
+  return keyPathComponentTypes.find(std::make_pair(KP, ComponentIndex))
+            != keyPathComponentTypes.end();
+}
+
 Type Solution::getType(ASTNode node) const {
   auto result = nodeTypes.find(node);
   if (result != nodeTypes.end())
@@ -8906,6 +8922,11 @@ Type Solution::getType(ASTNode node) const {
 
   auto &cs = getConstraintSystem();
   return cs.getType(node);
+}
+
+Type Solution::getType(const KeyPathExpr *KP, unsigned I) const {
+  assert(hasType(KP, I) && "Expected type to have been set!");
+  return keyPathComponentTypes.find(std::make_pair(KP, I))->second;
 }
 
 Type Solution::getResolvedType(ASTNode node) const {
