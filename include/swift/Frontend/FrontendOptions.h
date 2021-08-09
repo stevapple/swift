@@ -424,8 +424,7 @@ public:
   /// Whether to include symbols with SPI information in the symbol graph.
   bool IncludeSPISymbolsInSymbolGraph = false;
 
-  /// Package declarations.
-  /// TODO: Complete the description.
+  /// Whether to ignore package declarations.
   bool IgnorePackageDeclarations = false;
 
 private:

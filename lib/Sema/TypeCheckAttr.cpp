@@ -115,6 +115,7 @@ public:
   IGNORED_ATTR(ImplicitSelfCapture)
   IGNORED_ATTR(InheritActorContext)
   IGNORED_ATTR(Isolated)
+  IGNORED_ATTR(Package)
 #undef IGNORED_ATTR
 
   void visitAlignmentAttr(AlignmentAttr *attr) {
@@ -265,8 +266,6 @@ public:
   void visitReasyncAttr(ReasyncAttr *attr);
   void visitNonisolatedAttr(NonisolatedAttr *attr);
   void visitCompletionHandlerAsyncAttr(CompletionHandlerAsyncAttr *attr);
-
-  void visitPackageAttr(PackageAttr *attr);
 };
 
 } // end anonymous namespace
@@ -5686,29 +5685,6 @@ void AttributeChecker::visitCompletionHandlerAsyncAttr(
     CompletionHandlerAsyncAttr *attr) {
   if (AbstractFunctionDecl *AFD = dyn_cast<AbstractFunctionDecl>(D))
     AFD->getAsyncAlternative();
-}
-
-void AttributeChecker::visitPackageAttr(PackageAttr *attr) {
-  auto import = dyn_cast<ImportDecl>(D);
-  if (!import)
-    return;
-
-  if (attr->getNumArguments() != 2) {
-      diagnose(
-        attr->getLocation(), diag::invalid_package_declaration,
-        attr->getNumArguments() > 2 ? "too many arguments":"too few arguments"
-      );
-  }
-
-  ModuleDecl *moduleDecl = import->getModule()->getTopLevelModule();
-  if (!moduleDecl)
-    return;
-
-  diagnose(
-    attr->getLocation(), diag::package_declaration,
-    moduleDecl->getABIName().str(), attr->getPackageDeclaration()
-  );
-  // TODO
 }
 
 AbstractFunctionDecl *AsyncAlternativeRequest::evaluate(
