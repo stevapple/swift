@@ -1861,7 +1861,7 @@ ERROR(expected_multiple_closures_block_rbrace,none,
       "expected '}' at the end of a trailing closures block", ())
 
 // Package declaration errors
-ERROR(package_declaration_not_allowed,none,
+ERROR(package_declarations_not_allowed,none,
       "package declaration is not allowed", ())
 
 #define UNDEFINE_DIAGNOSTIC_MACROS

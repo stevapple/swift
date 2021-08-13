@@ -775,7 +775,7 @@ static bool ParseLangArgs(LangOptions &Opts, ArgList &Args,
   }
 
   if (FrontendOpts.RequestedAction == FrontendOptions::ActionType::PrintPackageDeclarations) {
-    Opts.AllowPackageDeclaration = true;
+    Opts.AllowPackageDeclarations = true;
   }
   if (FrontendOpts.IgnorePackageDeclarations) {
     Opts.IgnorePackageDeclarations = true;

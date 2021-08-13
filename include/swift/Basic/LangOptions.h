@@ -443,8 +443,8 @@ namespace swift {
     // FrontendOptions.
     bool AllowModuleWithCompilerErrors = false;
 
-    // Allow @package attribute in the file.
-    bool AllowPackageDeclaration = false;
+    // Allow @package attributes in the file.
+    bool AllowPackageDeclarations = false;
 
     // Ingore @package attributes in the file.
     bool IgnorePackageDeclarations = false;

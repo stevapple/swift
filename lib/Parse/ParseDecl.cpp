@@ -2748,7 +2748,7 @@ bool Parser::parseNewDeclAttribute(DeclAttributes &Attributes, SourceLoc AtLoc,
 
   case DAK_Package: {
     if (!allowPackageDeclaration()) {
-      diagnose(Loc, diag::package_declaration_not_allowed);
+      diagnose(Loc, diag::package_declarations_not_allowed);
       return false;
     }
 

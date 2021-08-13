@@ -193,7 +193,7 @@ public:
     return Context.LangOpts.IgnorePackageDeclarations;
   }
   bool allowPackageDeclaration() const {
-    return Context.LangOpts.AllowPackageDeclaration ||
+    return Context.LangOpts.AllowPackageDeclarations ||
       Context.LangOpts.IgnorePackageDeclarations;
   }
 
