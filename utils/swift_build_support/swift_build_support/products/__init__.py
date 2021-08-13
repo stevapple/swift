@@ -34,6 +34,7 @@ from .swiftpm import SwiftPM
 from .swiftsyntax import SwiftSyntax
 from .tsan_libdispatch import TSanLibDispatch
 from .xctest import XCTest
+from .packageparser import PackageSyntaxParser
 
 __all__ = [
     'CMark',
@@ -61,4 +62,5 @@ __all__ = [
     'SourceKitLSP',
     'Benchmarks',
     'TSanLibDispatch',
+    'PackageSyntaxParser',
 ]

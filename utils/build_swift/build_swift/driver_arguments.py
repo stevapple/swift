@@ -193,6 +193,7 @@ def _apply_default_arguments(args):
         args.test_swiftformat = False
         args.test_swiftevolve = False
         args.test_toolchainbenchmarks = False
+        args.test_packageparser = False
 
     # --test implies --test-early-swift-driver
     # (unless explicitly skipped with `--skip-test-early-swift-driver`)
@@ -616,6 +617,9 @@ def create_argument_parser():
 
     option(['--swiftevolve'], toggle_true('build_swiftevolve'),
            help='build the swift-evolve tool')
+
+    option(['--package-parser'], toggle_true('build_packageparser'),
+           help='build package-syntax-parser')
 
     option(['--swift-driver'], toggle_true('build_swift_driver'),
            help='build swift-driver')
@@ -1097,6 +1101,8 @@ def create_argument_parser():
     option('--skip-test-swift-inspect',
            toggle_false('test_swift_inspect'),
            help='skip testing swift_inspect')
+    option('--skip-test-package-parser', toggle_false('test_packageparser'),
+           help='skip testing package-syntax-parser')
 
     # -------------------------------------------------------------------------
     in_group('Build settings specific for LLVM')

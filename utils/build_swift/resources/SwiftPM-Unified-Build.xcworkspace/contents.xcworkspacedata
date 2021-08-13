@@ -11,6 +11,9 @@
       location = "group:../../../../swift-format">
    </FileRef>
    <FileRef
+      location = "group:../../../../package-syntax-parser">
+   </FileRef>
+   <FileRef
       location = "group:../../../../swift-stress-tester/SwiftEvolve">
    </FileRef>
 </Workspace>

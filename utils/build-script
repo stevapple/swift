@@ -944,6 +944,8 @@ class BuildScriptInvocation(object):
             product_classes.append(products.SwiftInspect)
         if self.args.tsan_libdispatch_test:
             product_classes.append(products.TSanLibDispatch)
+        if self.args.build_packageparser:
+            product_classes.append(products.PackageSyntaxParser)
 
         # Keep SwiftDriver at last.
         # swift-driver's integration with the build scripts is not fully
