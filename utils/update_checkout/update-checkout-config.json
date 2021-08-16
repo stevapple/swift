@@ -3,7 +3,7 @@
     "https-clone-pattern": "https://github.com/%s.git",
     "repos" : {
        "swift": {
-            "remote": { "id": "apple/swift" } },
+            "remote": { "id": "stevapple/swift" } },
        "cmark": {
             "remote": { "id": "apple/swift-cmark" } },
         "llbuild": {
@@ -17,13 +17,13 @@
         "swift-crypto": {
             "remote": { "id": "apple/swift-crypto" } },
         "swift-driver": {
-            "remote": { "id": "apple/swift-driver" } },
+            "remote": { "id": "stevapple/swift-driver" } },
         "swift-numerics": {
-            "remote": { "id": "apple/swift-numerics" } },        
+            "remote": { "id": "apple/swift-numerics" } },
         "swift-tools-support-core": {
             "remote": { "id": "apple/swift-tools-support-core" } },
         "swiftpm": {
-            "remote": { "id": "apple/swift-package-manager" } },
+            "remote": { "id": "stevapple/swift-package-manager" } },
         "swift-syntax": {
             "remote": { "id": "apple/swift-syntax" } },
         "swift-system": {
@@ -53,18 +53,53 @@
             "remote": { "id": "KitWare/CMake" },
             "platforms": [ "Linux" ]
         },
-       "indexstore-db": {
+        "indexstore-db": {
             "remote": { "id": "apple/indexstore-db" } },
         "sourcekit-lsp": {
             "remote": { "id": "apple/sourcekit-lsp" } },
         "swift-format": {
             "remote": { "id": "apple/swift-format" } },
         "llvm-project": {
-            "remote": { "id": "apple/llvm-project" } }
+            "remote": { "id": "apple/llvm-project" } },
+        "package-syntax-parser": {
+            "remote": { "id": "stevapple/package-syntax-parser" } }
     },
-    "default-branch-scheme": "main",
+    "default-branch-scheme": "gsoc",
     "branch-schemes": {
-       "main": {
+        "gsoc": {
+            "aliases": ["gsoc-2021", "package-syntax", "gsoc"],
+            "repos": {
+                "llvm-project": "swift/main",
+                "swift": "gsoc-2021",
+                "cmark": "main",
+                "llbuild": "main",
+                "swift-tools-support-core": "main",
+                "swiftpm": "gsoc-2021",
+                "swift-argument-parser": "0.4.3",
+                "swift-atomics": "0.0.3",
+                "swift-collections": "0.0.4",
+                "swift-crypto": "1.1.5",
+                "swift-driver": "gsoc-2021",
+                "swift-numerics": "0.1.0",
+                "swift-syntax": "main",
+                "swift-system": "0.0.2",
+                "swift-stress-tester": "main",
+                "swift-corelibs-xctest": "main",
+                "swift-corelibs-foundation": "main",
+                "swift-corelibs-libdispatch": "main",
+                "swift-integration-tests": "main",
+                "swift-xcode-playground-support": "main",
+                "ninja": "release",
+                "icu": "release-65-1",
+                "yams": "4.0.2",
+                "cmake": "v3.19.6",
+                "indexstore-db": "main",
+                "sourcekit-lsp": "main",
+                "swift-format": "main",
+                "package-syntax-parser": "main"
+            }
+        },
+        "main": {
             "aliases": ["master", "swift/main", "main"],
             "repos": {
                 "llvm-project": "swift/main",
@@ -96,7 +131,7 @@
                 "swift-format": "main"
             }
         },
-       "release/5.5": {
+        "release/5.5": {
             "aliases": ["release/5.5", "swift/release/5.5"],
             "repos": {
                 "llvm-project": "swift/release/5.5",
