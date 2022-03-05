@@ -13,52 +13,52 @@
 module ucrt [system] {
   module C {
     module complex {
-      header "complex.h"
+      header "sdk/ucrt/complex.h"
       export *
     }
 
     module ctype {
-      header "ctype.h"
+      header "sdk/ucrt/ctype.h"
       export *
     }
 
     module errno {
-      header "errno.h"
+      header "sdk/ucrt/errno.h"
       export *
     }
 
     module fenv {
-      header "fenv.h"
+      header "sdk/ucrt/fenv.h"
       export *
     }
 
     module inttypes {
-      header "inttypes.h"
+      header "sdk/ucrt/inttypes.h"
       export *
     }
 
     module locale {
-      header "locale.h"
+      header "sdk/ucrt/locale.h"
       export *
     }
 
     module math {
-      header "math.h"
+      header "sdk/ucrt/math.h"
       export *
     }
 
     module signal {
-      header "signal.h"
+      header "sdk/ucrt/signal.h"
       export *
     }
 
     module stddef {
-      header "stddef.h"
+      header "sdk/ucrt/stddef.h"
       export *
     }
 
     module stdio {
-      header "stdio.h"
+      header "sdk/ucrt/stdio.h"
       export *
 
       // NOTE(compnerd) this is a horrible workaround for the fact that
@@ -70,23 +70,23 @@ module ucrt [system] {
     }
 
     module stdlib {
-      header "stdlib.h"
+      header "sdk/ucrt/stdlib.h"
       export *
     }
 
     module string {
-      header "string.h"
+      header "sdk/ucrt/string.h"
       export *
     }
 
     module time {
-      header "time.h"
+      header "sdk/ucrt/time.h"
       export *
     }
 
     module POSIX {
       module fcntl {
-        header "fcntl.h"
+        header "sdk/ucrt/fcntl.h"
         export *
       }
 
@@ -94,18 +94,18 @@ module ucrt [system] {
         export *
 
         module stat {
-          header "sys/stat.h"
-          header "direct.h"
+          header "sdk/ucrt/sys/stat.h"
+          header "sdk/ucrt/direct.h"
           export *
         }
 
         module types {
-          header "sys/types.h"
+          header "sdk/ucrt/sys/types.h"
           export *
         }
 
         module utime {
-          header "sys/utime.h"
+          header "sdk/ucrt/sys/utime.h"
           export *
         }
       }
@@ -113,29 +113,28 @@ module ucrt [system] {
   }
 
   module process {
-    header "process.h"
+    header "sdk/ucrt/process.h"
     export *
   }
 
   module corecrt {
-    header "corecrt.h"
-    header "corecrt_stdio_config.h"
+    header "sdk/ucrt/corecrt.h"
+    header "sdk/ucrt/corecrt_stdio_config.h"
     export *
 
     module io {
-      header "corecrt_io.h"
+      header "sdk/ucrt/corecrt_io.h"
       export *
     }
 
     module math {
-      header "corecrt_math.h"
+      header "sdk/ucrt/corecrt_math.h"
       export *
     }
 
     module stdio {
-      header "corecrt_wstdio.h"
+      header "sdk/ucrt/corecrt_wstdio.h"
       export *
     }
   }
 }
-
