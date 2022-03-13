@@ -16,12 +16,7 @@ function(swift_windows_arch_spelling arch var)
 endfunction()
 
 function(swift_windows_include_for_arch arch var)
-  set(paths
-      "${VCToolsInstallDir}/include"
-      "${UniversalCRTSdkDir}/Include/${UCRTVersion}/ucrt"
-      "${UniversalCRTSdkDir}/Include/${UCRTVersion}/shared"
-      "${UniversalCRTSdkDir}/Include/${UCRTVersion}/um")
-  set(${var} ${paths} PARENT_SCOPE)
+  set(${var} PARENT_SCOPE)
 endfunction()
 
 function(swift_windows_lib_for_arch arch var)

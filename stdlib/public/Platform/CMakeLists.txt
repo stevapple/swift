@@ -114,6 +114,56 @@ add_swift_target_library(swiftCRT ${SWIFT_STDLIB_LIBRARY_BUILD_TYPES} IS_SDK_OVE
     TARGET_SDKS WINDOWS
     INSTALL_IN_COMPONENT sdk-overlay)
 
+add_swift_target_library(swiftWinSDK ${SWIFT_STDLIB_LIBRARY_BUILD_TYPES} IS_SDK_OVERLAY
+    WinSDK.swift
+
+    SWIFT_COMPILE_FLAGS ${SWIFT_RUNTIME_SWIFT_COMPILE_FLAGS} ${SWIFT_STANDARD_LIBRARY_SWIFT_FLAGS}
+    LINK_FLAGS "${SWIFT_RUNTIME_SWIFT_LINK_FLAGS}"
+    TARGET_SDKS WINDOWS
+    INSTALL_IN_COMPONENT sdk-overlay)
+
+if (WINDOWS IN_LIST SWIFT_SDKS)
+  set(system_subdir "${SWIFT_SDK_WINDOWS_LIB_SUBDIR}")
+  set(module_dir "${SWIFTLIB_DIR}/${system_subdir}")
+  set(module_dir_static "${SWIFTSTATICLIB_DIR}/${system_subdir}")
+  set(winsdk_modulemap_out "${module_dir}/module.modulemap")
+
+  file(REMOVE "${winsdk_modulemap_out}")
+  foreach(module ucrt visualc winsdk)
+    file(READ ${module}.modulemap CONTENT)
+    file(APPEND "${winsdk_modulemap_out}" "${CONTENT}")
+  endforeach()
+  set(winsdk_subdir "sdk")
+  set(visualc_subdir "msvc")
+
+  # Install modulemap to natural include path /usr/include/windows
+  string(REPLACE "\\" "/" modulemap_install_dir "${CMAKE_INSTALL_PREFIX}/include/windows")
+  string(REPLACE "\\" "/" sdk_dir "${UniversalCRTSdkDir}/Include/${UCRTVersion}")
+  string(REPLACE "\\" "/" vc_dir "${VCToolsInstallDir}/include")
+  swift_install_in_component(FILES "${winsdk_modulemap_out}"
+                             DESTINATION "${modulemap_install_dir}"
+                             COMPONENT sdk-overlay)
+  swift_install_in_component(CODE "execute_process(
+                             COMMAND
+                               ${CMAKE_COMMAND} -E create_symlink \"${sdk_dir}\" \"${modulemap_install_dir}/${winsdk_subdir}\"
+                             COMMAND
+                               ${CMAKE_COMMAND} -E create_symlink \"${vc_dir}\" \"${modulemap_install_dir}/${visualc_subdir}\")"
+                             COMPONENT sdk-overlay)
+
+  execute_process(
+      COMMAND
+        ${CMAKE_COMMAND} -E create_symlink "${sdk_dir}" "${module_dir}/${winsdk_subdir}"
+      COMMAND
+        ${CMAKE_COMMAND} -E create_symlink "${vc_dir}" "${module_dir}/${visualc_subdir}")
+  if(SWIFT_BUILD_STATIC_STDLIB)
+    execute_process(
+        COMMAND
+          ${CMAKE_COMMAND} -E create_symlink "${sdk_dir}" "${module_dir_static}/${winsdk_subdir}"
+        COMMAND
+          ${CMAKE_COMMAND} -E create_symlink "${vc_dir}" "${module_dir_static}/${visualc_subdir}")
+  endif()
+endif()
+
 set(glibc_modulemap_target_list)
 foreach(sdk ${SWIFT_SDKS})
   if(NOT "${sdk}" STREQUAL "LINUX" AND
